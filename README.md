@@ -28,8 +28,8 @@ The result: self-contained folder icons that survive source file changes.
 ### Build from Source
 
 ```powershell
-git clone https://github.com/yourusername/IconExtractor.git
-cd IconExtractor
+git clone https://github.com/yourusername/FolderIconManager.git
+cd FolderIconManager
 dotnet build
 ```
 

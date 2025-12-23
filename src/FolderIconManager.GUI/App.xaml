@@ -29,6 +29,7 @@
         <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
         <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimary}"/>
         <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondary}"/>
+        <SolidColorBrush x:Key="TextTertiaryBrush" Color="#606060"/>
         <SolidColorBrush x:Key="AccentBlueBrush" Color="{StaticResource AccentBlue}"/>
         <SolidColorBrush x:Key="AccentGreenBrush" Color="{StaticResource AccentGreen}"/>
         <SolidColorBrush x:Key="AccentOrangeBrush" Color="{StaticResource AccentOrange}"/>

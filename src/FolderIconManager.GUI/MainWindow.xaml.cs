@@ -8,6 +8,7 @@ namespace FolderIconManager.GUI;
 public partial class MainWindow : Window
 {
     private MainViewModel? _viewModel;
+    private FolderTreeNode? _lastSelectedNode;
 
     public MainWindow()
     {
@@ -29,13 +30,61 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Handles multi-select with Ctrl+Click
+    /// </summary>
+    private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is TreeViewItem item && item.DataContext is FolderTreeNode node && _viewModel != null)
+        {
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                // Ctrl+Click: Toggle selection
+                e.Handled = true;
+                
+                if (node.IsMultiSelected)
+                {
+                    node.IsMultiSelected = false;
+                    _viewModel.SelectedNodes.Remove(node);
+                }
+                else
+                {
+                    node.IsMultiSelected = true;
+                    _viewModel.SelectedNodes.Add(node);
+                }
+                
+                _lastSelectedNode = node;
+                _viewModel.OnMultiSelectionChanged();
+            }
+            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) && _lastSelectedNode != null)
+            {
+                // Shift+Click: Range selection (simplified - just add to selection)
+                e.Handled = true;
+                node.IsMultiSelected = true;
+                _viewModel.SelectedNodes.Add(node);
+                _viewModel.OnMultiSelectionChanged();
+            }
+            else
+            {
+                // Normal click: Clear multi-selection
+                ClearMultiSelection();
+                _lastSelectedNode = node;
+            }
+        }
+    }
+
+    /// <summary>
     /// Ensures tree view item is selected on right-click (before context menu opens)
     /// </summary>
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is TreeViewItem item)
+        if (sender is TreeViewItem item && item.DataContext is FolderTreeNode node)
         {
-            item.IsSelected = true;
+            // If right-clicking on a multi-selected node, keep the selection
+            if (!node.IsMultiSelected)
+            {
+                ClearMultiSelection();
+                item.IsSelected = true;
+            }
             item.Focus();
             e.Handled = true;
         }
@@ -49,6 +98,19 @@ public partial class MainWindow : Window
         if (_viewModel != null && e.NewValue is FolderTreeNode node)
         {
             _viewModel.SelectedNode = node;
+            _lastSelectedNode = node;
         }
+    }
+
+    private void ClearMultiSelection()
+    {
+        if (_viewModel == null) return;
+        
+        foreach (var node in _viewModel.SelectedNodes.ToList())
+        {
+            node.IsMultiSelected = false;
+        }
+        _viewModel.SelectedNodes.Clear();
+        _viewModel.OnMultiSelectionChanged();
     }
 }

@@ -173,29 +173,48 @@
                 <!-- Separator -->
                 <Border Grid.Column="3" Width="1" Background="{StaticResource BorderBrush}" Margin="8,2"/>
 
-                <!-- Filter (placeholder) -->
+                <!-- Filter Controls -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal">
+                    <!-- Filter dropdown -->
                     <TextBlock Text="Filter:" 
                                Foreground="{StaticResource TextSecondaryBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,8,0"/>
-                    <ComboBox Width="120"
-                              SelectedIndex="0"
+                    <ComboBox Width="110"
+                              SelectedIndex="{Binding FilterModeIndex}"
                               Background="{StaticResource BackgroundLightBrush}"
-                              Foreground="{StaticResource TextPrimaryBrush}">
+                              Foreground="{StaticResource TextPrimaryBrush}"
+                              Margin="0,0,12,0">
                         <ComboBoxItem Content="All"/>
                         <ComboBoxItem Content="With Icons"/>
                         <ComboBoxItem Content="External Only"/>
+                        <ComboBoxItem Content="Local Only"/>
                         <ComboBoxItem Content="Broken Only"/>
-                        <ComboBoxItem Content="No Icon"/>
                     </ComboBox>
+                    
+                    <!-- Search box -->
+                    <TextBlock Text="Search:" 
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"/>
+                    <TextBox Width="150"
+                             Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged, Delay=300}"
+                             Style="{StaticResource ModernTextBox}"
+                             VerticalContentAlignment="Center"
+                             Padding="6,4"/>
                 </StackPanel>
 
-                <!-- Summary -->
-                <TextBlock Grid.Column="5" 
-                           Text="{Binding SummaryText}"
-                           Foreground="{StaticResource TextSecondaryBrush}"
-                           VerticalAlignment="Center"/>
+                <!-- Selection / Summary -->
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="{StaticResource AccentBlueBrush}" 
+                            CornerRadius="3" Padding="6,2" Margin="0,0,8,0"
+                            Visibility="{Binding HasMultiSelection, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="{Binding SelectionText}" 
+                                   Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="{Binding SummaryText}"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -214,14 +233,19 @@
                     <Style TargetType="TreeViewItem">
                         <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                         <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                        <Setter Property="Visibility" Value="{Binding Visibility}"/>
                         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                         <Setter Property="Padding" Value="2"/>
                         <Setter Property="Margin" Value="0,1"/>
+                        <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeViewItem_PreviewMouseLeftButtonDown"/>
                         <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Background" Value="{StaticResource AccentBlueBrush}"/>
                             </Trigger>
+                            <DataTrigger Binding="{Binding IsMultiSelected}" Value="True">
+                                <Setter Property="Background" Value="#3060A0"/>
+                            </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </TreeView.ItemContainerStyle>
@@ -231,9 +255,9 @@
                         <Grid Margin="2,3">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="24"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto" MinWidth="120" MaxWidth="250"/>
                                 <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="30"/>
                             </Grid.ColumnDefinitions>
 
@@ -250,28 +274,30 @@
                                        Margin="6,0,12,0"
                                        TextTrimming="CharacterEllipsis"/>
 
-                            <!-- Source Description -->
-                            <TextBlock Grid.Column="2" 
-                                       Text="{Binding SourceDescription}" 
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"
-                                       MaxWidth="300"
-                                       Margin="0,0,12,0"
-                                       FontSize="11"/>
-
                             <!-- Status -->
-                            <Border Grid.Column="3" 
+                            <Border Grid.Column="2" 
                                     Background="{StaticResource BackgroundLightBrush}"
                                     CornerRadius="3"
                                     Padding="6,2"
                                     VerticalAlignment="Center"
+                                    Margin="0,0,8,0"
                                     Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <TextBlock Text="{Binding StatusText}" 
                                            Foreground="{Binding StatusBrush}"
                                            FontSize="11"
                                            FontWeight="SemiBold"/>
                             </Border>
+
+                            <!-- Icon Source Path -->
+                            <TextBlock Grid.Column="3" 
+                                       Text="{Binding SourceDescription}" 
+                                       Foreground="{StaticResource TextTertiaryBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       Margin="0,0,8,0"
+                                       FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas, Courier New"
+                                       ToolTip="{Binding SourceDescription}"/>
 
                             <!-- Backup Indicator -->
                             <TextBlock Grid.Column="4" 
@@ -280,7 +306,7 @@
                                        VerticalAlignment="Center"
                                        HorizontalAlignment="Center"
                                        FontSize="14"
-                                       ToolTip="Has backup / Source changed"/>
+                                       ToolTip="{Binding BackupTooltip}"/>
                         </Grid>
                     </HierarchicalDataTemplate>
                 </TreeView.ItemTemplate>

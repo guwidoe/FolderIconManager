@@ -28,6 +28,8 @@ public class MainViewModel : INotifyPropertyChanged
     private FolderTreeNode? _selectedNode;
     private string _filterText = "";
     private FilterMode _filterMode = FilterMode.All;
+    private List<FolderTreeNode> _allNodes = [];
+    private HashSet<FolderTreeNode> _selectedNodes = [];
 
     public MainViewModel()
     {
@@ -141,10 +143,40 @@ public class MainViewModel : INotifyPropertyChanged
     public FilterMode FilterMode
     {
         get => _filterMode;
-        set { _filterMode = value; OnPropertyChanged(); ApplyFilter(); }
+        set { _filterMode = value; OnPropertyChanged(); OnPropertyChanged(nameof(FilterModeIndex)); ApplyFilter(); }
     }
 
-    private bool CanMakeLocal => SelectedNode?.Status == FolderIconStatus.ExternalAndValid;
+    public int FilterModeIndex
+    {
+        get => (int)_filterMode;
+        set { FilterMode = (FilterMode)value; }
+    }
+
+    public HashSet<FolderTreeNode> SelectedNodes => _selectedNodes;
+
+    public int SelectedCount => _selectedNodes.Count;
+
+    public bool HasMultiSelection => _selectedNodes.Count > 1;
+
+    public string SelectionText => _selectedNodes.Count > 1 ? $"{_selectedNodes.Count} selected" : "";
+
+    /// <summary>
+    /// Gets all selected nodes (multi-selected or single selected)
+    /// </summary>
+    public IEnumerable<FolderTreeNode> AllSelectedNodes
+    {
+        get
+        {
+            if (_selectedNodes.Count > 0)
+                return _selectedNodes;
+            if (_selectedNode != null)
+                return [_selectedNode];
+            return [];
+        }
+    }
+
+    private bool CanMakeLocal => SelectedNode?.Status == FolderIconStatus.ExternalAndValid || 
+                                  _selectedNodes.Any(n => n.Status == FolderIconStatus.ExternalAndValid);
     private bool CanRestore => SelectedNode?.HasBackup == true;
     private bool CanUpdateFromSource => SelectedNode?.HasBackup == true && SelectedNode?.SourceChanged == true;
 
@@ -272,8 +304,15 @@ public class MainViewModel : INotifyPropertyChanged
             Application.Current.Dispatcher.Invoke(() =>
             {
                 RootNodes.Add(rootNode);
+                _allNodes = GetAllNodes(RootNodes).ToList();
                 StatusText = $"Found {scanResult.FoldersWithIcons} folder(s) with icons";
                 OnPropertyChanged(nameof(SummaryText));
+                
+                // Apply any active filter
+                if (_filterMode != FilterMode.All || !string.IsNullOrEmpty(_filterText))
+                {
+                    ApplyFilter();
+                }
             });
         }
         catch (Exception ex)
@@ -441,28 +480,45 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task MakeLocalAsync()
     {
-        if (SelectedNode?.IconInfo == null) return;
+        var nodesToProcess = AllSelectedNodes
+            .Where(n => n.IconInfo != null && n.Status == FolderIconStatus.ExternalAndValid)
+            .ToList();
+        
+        if (nodesToProcess.Count == 0) return;
 
         _isProcessing = true;
-        StatusText = "Extracting icon...";
+        var isBulk = nodesToProcess.Count > 1;
+        StatusText = isBulk ? $"Extracting {nodesToProcess.Count} icons..." : "Extracting icon...";
 
         try
         {
-            var result = await Task.Run(() => _service.ExtractAndInstall([SelectedNode.IconInfo], skipExisting: false));
+            var successCount = 0;
             
-            if (result.Succeeded.Count > 0)
+            foreach (var node in nodesToProcess)
             {
-                SelectedNode.Status = FolderIconStatus.LocalAndValid;
-                SelectedNode.HasBackup = true;
-                StatusText = "Icon extracted to local file";
+                if (node.IconInfo == null) continue;
                 
-                // Refresh icon image
-                RefreshNodeIcon(SelectedNode);
+                // Capture state for undo BEFORE making changes
+                var undoOp = await Task.Run(() => CaptureStateForUndo(node, UndoOperationType.MakeLocal, "Make local"));
+
+                var result = await Task.Run(() => _service.ExtractAndInstall([node.IconInfo], skipExisting: false));
+                
+                if (result.Succeeded.Count > 0)
+                {
+                    if (undoOp != null)
+                    {
+                        _undoService.RecordOperation(undoOp);
+                    }
+
+                    RefreshNodeAfterUndo(node);
+                    AddLog($"[INF] Localized icon for {node.Name}");
+                    successCount++;
+                }
             }
-            else
-            {
-                StatusText = "Failed to extract icon";
-            }
+
+            StatusText = isBulk 
+                ? $"Extracted {successCount} of {nodesToProcess.Count} icons" 
+                : (successCount > 0 ? "Icon extracted to local file" : "Failed to extract icon");
         }
         catch (Exception ex)
         {
@@ -473,6 +529,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             _isProcessing = false;
             RefreshCommandStates();
+            OnPropertyChanged(nameof(SummaryText));
         }
     }
 
@@ -485,14 +542,24 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
+            // Capture state for undo BEFORE making changes  
+            var undoOp = await Task.Run(() => CaptureStateForUndo(SelectedNode, UndoOperationType.Restore, "Restore original"));
+
             var success = await Task.Run(() => _service.RestoreFromBackup(SelectedNode.FullPath));
             
             if (success)
             {
+                // Record undo operation
+                if (undoOp != null)
+                {
+                    _undoService.RecordOperation(undoOp);
+                }
+
                 SelectedNode.Status = FolderIconStatus.ExternalAndValid;
                 SelectedNode.HasBackup = false;
                 StatusText = "Restored to original icon";
                 RefreshNodeIcon(SelectedNode);
+                AddLog($"[INF] Restored original icon for {SelectedNode.Name}");
             }
             else
             {
@@ -545,48 +612,58 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task RemoveIconAsync()
     {
-        if (SelectedNode == null) return;
+        var nodesToProcess = AllSelectedNodes.Where(n => n.HasIcon).ToList();
+        
+        if (nodesToProcess.Count == 0) return;
 
         _isProcessing = true;
-        StatusText = "Removing icon...";
+        var isBulk = nodesToProcess.Count > 1;
+        StatusText = isBulk ? $"Removing {nodesToProcess.Count} icons..." : "Removing icon...";
 
         try
         {
-            await Task.Run(() =>
+            var successCount = 0;
+            
+            foreach (var node in nodesToProcess)
             {
-                var iniPath = Path.Combine(SelectedNode.FullPath, "desktop.ini");
+                // Capture state for undo BEFORE making changes
+                var undoOp = await Task.Run(() => CaptureStateForUndo(node, UndoOperationType.RemoveIcon, "Remove icon"));
                 
-                if (File.Exists(iniPath))
+                await Task.Run(() =>
                 {
-                    // Clear attributes
-                    File.SetAttributes(iniPath, FileAttributes.Normal);
+                    var iniPath = Path.Combine(node.FullPath, "desktop.ini");
                     
-                    // Remove IconResource from desktop.ini
-                    // For simplicity, just delete the file if it only has icon info
-                    // TODO: Properly edit INI to preserve other settings
-                    File.Delete(iniPath);
-                }
+                    if (File.Exists(iniPath))
+                    {
+                        File.SetAttributes(iniPath, FileAttributes.Normal);
+                        File.Delete(iniPath);
+                    }
 
-                // Remove local icon if exists
-                var localIcon = Path.Combine(SelectedNode.FullPath, "folder.ico");
-                if (File.Exists(localIcon))
+                    var localIcon = Path.Combine(node.FullPath, "folder.ico");
+                    if (File.Exists(localIcon))
+                    {
+                        File.SetAttributes(localIcon, FileAttributes.Normal);
+                        File.Delete(localIcon);
+                    }
+
+                    BackupManifest.Delete(node.FullPath);
+                    Core.Native.FileAttributeHelper.NotifyShellOfChange(node.FullPath);
+                });
+
+                if (undoOp != null)
                 {
-                    File.SetAttributes(localIcon, FileAttributes.Normal);
-                    File.Delete(localIcon);
+                    _undoService.RecordOperation(undoOp);
                 }
 
-                // Remove backup manifest
-                BackupManifest.Delete(SelectedNode.FullPath);
+                node.Status = FolderIconStatus.NoIcon;
+                node.IconInfo = null;
+                node.HasBackup = false;
+                node.IconImage = _iconCache.DefaultFolderIcon;
+                AddLog($"[INF] Removed icon from {node.Name}");
+                successCount++;
+            }
 
-                // Notify shell
-                Core.Native.FileAttributeHelper.NotifyShellOfChange(SelectedNode.FullPath);
-            });
-
-            SelectedNode.Status = FolderIconStatus.NoIcon;
-            SelectedNode.IconInfo = null;
-            SelectedNode.HasBackup = false;
-            SelectedNode.IconImage = _iconCache.DefaultFolderIcon;
-            StatusText = "Icon removed";
+            StatusText = isBulk ? $"Removed {successCount} icons" : "Icon removed";
         }
         catch (Exception ex)
         {
@@ -600,6 +677,58 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private UndoOperation? CaptureStateForUndo(FolderTreeNode node, UndoOperationType type, string description)
+    {
+        string? originalPath = null;
+        int originalIndex = 0;
+        byte[]? localIconData = null;
+        string? backupJson = null;
+        bool hadBackup = false;
+
+        // Capture current icon reference
+        if (node.IconInfo?.CurrentIconResource != null)
+        {
+            originalPath = node.IconInfo.CurrentIconResource.FilePath;
+            originalIndex = node.IconInfo.CurrentIconResource.Index;
+        }
+
+        // Capture local icon data if it exists
+        var localIconPath = Path.Combine(node.FullPath, "folder.ico");
+        if (File.Exists(localIconPath))
+        {
+            try
+            {
+                File.SetAttributes(localIconPath, FileAttributes.Normal);
+                localIconData = File.ReadAllBytes(localIconPath);
+            }
+            catch { }
+        }
+
+        // Capture backup manifest
+        var manifestPath = Path.Combine(node.FullPath, ".folder-icon-backup.json");
+        if (File.Exists(manifestPath))
+        {
+            try
+            {
+                hadBackup = true;
+                backupJson = File.ReadAllText(manifestPath);
+            }
+            catch { }
+        }
+
+        return new UndoOperation
+        {
+            FolderPath = node.FullPath,
+            Type = type,
+            Description = $"{description}: {node.Name}",
+            OriginalIconPath = originalPath,
+            OriginalIconIndex = originalIndex,
+            LocalIconData = localIconData,
+            HadBackupManifest = hadBackup,
+            BackupManifestJson = backupJson
+        };
+    }
+
     private async Task ApplyIconAsync(FolderTreeNode node, string iconPath, int iconIndex, bool useLocal)
     {
         _isProcessing = true;
@@ -607,17 +736,18 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
+            // Capture state for undo BEFORE making changes
+            var undoOp = await Task.Run(() => CaptureStateForUndo(node, UndoOperationType.SetIcon, "Set icon"));
+
             await Task.Run(() =>
             {
                 if (useLocal)
                 {
-                    // Extract to local folder.ico
                     var localPath = Path.Combine(node.FullPath, "folder.ico");
                     _service.ExtractIconFromPath(iconPath, iconIndex, localPath);
                     _service.UpdateDesktopIni(node.FullPath, localPath);
                     _service.ApplyAttributes(node.FullPath, localPath);
                     
-                    // Create backup manifest
                     var manifest = new BackupManifest
                     {
                         BackupDate = DateTime.Now,
@@ -629,7 +759,6 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 else
                 {
-                    // Use external reference
                     var iniPath = Path.Combine(node.FullPath, "desktop.ini");
                     var iniFile = new Core.Native.IniFile(iniPath);
                     iniFile.WriteIconResource(iconPath, iconIndex);
@@ -639,15 +768,18 @@ public class MainViewModel : INotifyPropertyChanged
                 Core.Native.FileAttributeHelper.NotifyShellOfChange(node.FullPath);
             });
 
-            // Update node
-            node.Status = useLocal ? FolderIconStatus.LocalAndValid : FolderIconStatus.ExternalAndValid;
-            node.HasBackup = useLocal;
-            RefreshNodeIcon(node);
-            
-            // Add to recent
+            // Record undo operation
+            if (undoOp != null)
+            {
+                _undoService.RecordOperation(undoOp);
+            }
+
+            // Refresh the node from disk to get updated state
+            RefreshNodeAfterUndo(node);
             _userData.AddRecentIcon(new IconReference { FilePath = iconPath, Index = iconIndex });
             
             StatusText = "Icon applied";
+            AddLog($"[INF] Set icon for {node.Name}");
         }
         catch (Exception ex)
         {
@@ -687,8 +819,174 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task UndoAsync()
     {
-        // TODO: Implement undo logic
-        await Task.CompletedTask;
+        var operation = _undoService.Pop();
+        if (operation == null) return;
+
+        _isProcessing = true;
+        StatusText = $"Undoing: {operation.Description}...";
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                switch (operation.Type)
+                {
+                    case UndoOperationType.SetIcon:
+                    case UndoOperationType.MakeLocal:
+                        // Restore previous state
+                        if (string.IsNullOrEmpty(operation.OriginalIconPath))
+                        {
+                            // Had no icon before - remove current
+                            RemoveIconFiles(operation.FolderPath);
+                        }
+                        else
+                        {
+                            // Restore original icon reference
+                            var iniFile = new Core.Native.IniFile(Path.Combine(operation.FolderPath, "desktop.ini"));
+                            iniFile.WriteIconResource(operation.OriginalIconPath, operation.OriginalIconIndex);
+                            _service.ApplyAttributes(operation.FolderPath, "");
+                        }
+                        
+                        // Restore backup manifest if existed
+                        if (operation.HadBackupManifest && !string.IsNullOrEmpty(operation.BackupManifestJson))
+                        {
+                            var manifestPath = Path.Combine(operation.FolderPath, ".folder-icon-backup.json");
+                            File.WriteAllText(manifestPath, operation.BackupManifestJson);
+                            File.SetAttributes(manifestPath, FileAttributes.Hidden);
+                        }
+                        else
+                        {
+                            BackupManifest.Delete(operation.FolderPath);
+                        }
+                        
+                        // Restore local icon if we had it backed up
+                        if (operation.LocalIconData != null)
+                        {
+                            var localPath = Path.Combine(operation.FolderPath, "folder.ico");
+                            File.WriteAllBytes(localPath, operation.LocalIconData);
+                            File.SetAttributes(localPath, FileAttributes.Hidden);
+                        }
+                        break;
+
+                    case UndoOperationType.RemoveIcon:
+                        // Restore the removed icon
+                        if (!string.IsNullOrEmpty(operation.OriginalIconPath))
+                        {
+                            var iniFile = new Core.Native.IniFile(Path.Combine(operation.FolderPath, "desktop.ini"));
+                            iniFile.WriteIconResource(operation.OriginalIconPath, operation.OriginalIconIndex);
+                            _service.ApplyAttributes(operation.FolderPath, "");
+                        }
+                        
+                        // Restore local icon data
+                        if (operation.LocalIconData != null)
+                        {
+                            var localPath = Path.Combine(operation.FolderPath, "folder.ico");
+                            File.WriteAllBytes(localPath, operation.LocalIconData);
+                            File.SetAttributes(localPath, FileAttributes.Hidden);
+                        }
+                        
+                        // Restore backup manifest
+                        if (!string.IsNullOrEmpty(operation.BackupManifestJson))
+                        {
+                            var manifestPath = Path.Combine(operation.FolderPath, ".folder-icon-backup.json");
+                            File.WriteAllText(manifestPath, operation.BackupManifestJson);
+                            File.SetAttributes(manifestPath, FileAttributes.Hidden);
+                        }
+                        break;
+
+                    case UndoOperationType.Restore:
+                        // Restore back to local version
+                        if (operation.LocalIconData != null)
+                        {
+                            var localPath = Path.Combine(operation.FolderPath, "folder.ico");
+                            File.WriteAllBytes(localPath, operation.LocalIconData);
+                            File.SetAttributes(localPath, FileAttributes.Hidden);
+                            
+                            var iniFile = new Core.Native.IniFile(Path.Combine(operation.FolderPath, "desktop.ini"));
+                            iniFile.WriteIconResource(localPath, 0);
+                            _service.ApplyAttributes(operation.FolderPath, localPath);
+                        }
+                        
+                        // Restore backup manifest
+                        if (!string.IsNullOrEmpty(operation.BackupManifestJson))
+                        {
+                            var manifestPath = Path.Combine(operation.FolderPath, ".folder-icon-backup.json");
+                            File.WriteAllText(manifestPath, operation.BackupManifestJson);
+                            File.SetAttributes(manifestPath, FileAttributes.Hidden);
+                        }
+                        break;
+                }
+
+                Core.Native.FileAttributeHelper.NotifyShellOfChange(operation.FolderPath);
+            });
+
+            // Update the node in the tree
+            var node = RootNodes.FirstOrDefault()?.FindNode(operation.FolderPath);
+            if (node != null)
+            {
+                RefreshNodeAfterUndo(node);
+            }
+
+            StatusText = $"Undone: {operation.Description}";
+            AddLog($"[INF] Undone: {operation.Description}");
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Undo failed: {ex.Message}";
+            AddLog($"[ERR] Undo failed: {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshCommandStates();
+            OnPropertyChanged(nameof(SummaryText));
+        }
+    }
+
+    private void RemoveIconFiles(string folderPath)
+    {
+        var iniPath = Path.Combine(folderPath, "desktop.ini");
+        if (File.Exists(iniPath))
+        {
+            File.SetAttributes(iniPath, FileAttributes.Normal);
+            File.Delete(iniPath);
+        }
+
+        var localIcon = Path.Combine(folderPath, "folder.ico");
+        if (File.Exists(localIcon))
+        {
+            File.SetAttributes(localIcon, FileAttributes.Normal);
+            File.Delete(localIcon);
+        }
+
+        BackupManifest.Delete(folderPath);
+    }
+
+    private void RefreshNodeAfterUndo(FolderTreeNode node)
+    {
+        // Re-scan the folder to get updated status
+        try
+        {
+            var info = _service.GetFolderIconInfo(node.FullPath);
+            node.IconInfo = info;
+            node.HasBackup = _service.HasBackup(node.FullPath);
+            if (node.HasBackup)
+            {
+                node.SourceChanged = _service.HasSourceChanged(node.FullPath);
+            }
+            else
+            {
+                node.SourceChanged = false;
+            }
+            RefreshNodeIcon(node);
+        }
+        catch
+        {
+            node.IconInfo = null;
+            node.HasBackup = false;
+            node.SourceChanged = false;
+            node.IconImage = _iconCache.DefaultFolderIcon;
+        }
     }
 
     private void OpenInExplorer()
@@ -722,7 +1020,53 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ApplyFilter()
     {
-        // TODO: Implement filtering
+        if (_allNodes.Count == 0) return;
+
+        var searchText = _filterText?.Trim().ToLowerInvariant() ?? "";
+        
+        foreach (var node in _allNodes)
+        {
+            bool matchesFilter = _filterMode switch
+            {
+                FilterMode.All => true,
+                FilterMode.WithIcons => node.HasIcon,
+                FilterMode.ExternalOnly => node.Status == FolderIconStatus.ExternalAndValid,
+                FilterMode.LocalOnly => node.Status == FolderIconStatus.LocalAndValid,
+                FilterMode.BrokenOnly => node.Status is FolderIconStatus.ExternalAndBroken or FolderIconStatus.LocalButMissing,
+                _ => true
+            };
+
+            bool matchesSearch = string.IsNullOrEmpty(searchText) ||
+                                 node.Name.ToLowerInvariant().Contains(searchText) ||
+                                 node.SourceDescription.ToLowerInvariant().Contains(searchText) ||
+                                 node.FullPath.ToLowerInvariant().Contains(searchText);
+
+            node.IsFiltered = !(matchesFilter && matchesSearch);
+            
+            // If a node matches, make sure its ancestors are visible
+            if (!node.IsFiltered)
+            {
+                var parent = node.Parent;
+                while (parent != null)
+                {
+                    parent.IsFiltered = false;
+                    if (!parent.IsExpanded && (matchesFilter && matchesSearch))
+                    {
+                        parent.IsExpanded = true;
+                    }
+                    parent = parent.Parent;
+                }
+            }
+        }
+
+        // Update summary
+        var visibleCount = _allNodes.Count(n => !n.IsFiltered);
+        if (_filterMode != FilterMode.All || !string.IsNullOrEmpty(searchText))
+        {
+            StatusText = $"Showing {visibleCount} of {_allNodes.Count} folders";
+        }
+        
+        OnPropertyChanged(nameof(SummaryText));
     }
 
     private void ClearLog()
@@ -748,7 +1092,17 @@ public class MainViewModel : INotifyPropertyChanged
     private void RefreshCommandStates()
     {
         OnPropertyChanged(nameof(CanScan));
+        OnPropertyChanged(nameof(SelectedCount));
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    public void OnMultiSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(AllSelectedNodes));
+        OnPropertyChanged(nameof(HasMultiSelection));
+        OnPropertyChanged(nameof(SelectionText));
+        RefreshCommandStates();
     }
 
     private void OnLogEntry(LogEntry entry)
@@ -833,8 +1187,8 @@ public enum FilterMode
     All,
     WithIcons,
     ExternalOnly,
-    BrokenOnly,
-    NoIcon
+    LocalOnly,
+    BrokenOnly
 }
 
 /// <summary>

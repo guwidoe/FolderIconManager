@@ -50,6 +50,15 @@ public class FolderIconService
     }
 
     /// <summary>
+    /// Gets icon information for a single folder
+    /// </summary>
+    public FolderIconInfo? GetFolderIconInfo(string folderPath)
+    {
+        var result = _scanner.Scan(folderPath, recursive: false);
+        return result.Folders.FirstOrDefault();
+    }
+
+    /// <summary>
     /// Extracts and installs local icons for the specified folders
     /// </summary>
     public ExtractionResult ExtractAndInstall(

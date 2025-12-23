@@ -16,9 +16,11 @@ public class FolderTreeNode : INotifyPropertyChanged
 {
     private bool _isExpanded;
     private bool _isSelected;
+    private bool _isMultiSelected;
     private bool _isLoaded;
     private bool _hasBackup;
     private bool _sourceChanged;
+    private bool _isFiltered;
     private ImageSource? _iconImage;
     private FolderIconStatus _status = FolderIconStatus.NoIcon;
     private FolderIconInfo? _iconInfo;
@@ -115,6 +117,19 @@ public class FolderTreeNode : INotifyPropertyChanged
         }
     }
 
+    public bool IsMultiSelected
+    {
+        get => _isMultiSelected;
+        set
+        {
+            if (_isMultiSelected != value)
+            {
+                _isMultiSelected = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     public bool HasBackup
     {
         get => _hasBackup;
@@ -126,6 +141,16 @@ public class FolderTreeNode : INotifyPropertyChanged
         get => _sourceChanged;
         set { _sourceChanged = value; OnPropertyChanged(); OnPropertyChanged(nameof(BackupIndicator)); }
     }
+
+    public bool IsFiltered
+    {
+        get => _isFiltered;
+        set { _isFiltered = value; OnPropertyChanged(); OnPropertyChanged(nameof(Visibility)); }
+    }
+
+    public System.Windows.Visibility Visibility => _isFiltered 
+        ? System.Windows.Visibility.Collapsed 
+        : System.Windows.Visibility.Visible;
 
     public ImageSource? IconImage
     {
@@ -148,6 +173,17 @@ public class FolderTreeNode : INotifyPropertyChanged
         {
             if (!HasBackup) return "";
             return SourceChanged ? "⟳" : "✓";
+        }
+    }
+
+    public string BackupTooltip
+    {
+        get
+        {
+            if (!HasBackup) return "";
+            return SourceChanged 
+                ? "Source has changed - click Update to refresh" 
+                : "Has local backup - can restore to original";
         }
     }
 

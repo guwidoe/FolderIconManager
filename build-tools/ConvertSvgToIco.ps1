@@ -9,8 +9,31 @@ function Test-CommandExists {
     $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
 }
 
+function Get-InkscapePath {
+    # Check if inkscape is in PATH
+    $cmd = Get-Command inkscape -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Path
+    }
+    
+    # Check common installation locations
+    $commonPaths = @(
+        "C:\Program Files\Inkscape\bin\inkscape.exe",
+        "C:\Program Files (x86)\Inkscape\bin\inkscape.exe",
+        "$env:LOCALAPPDATA\Programs\Inkscape\bin\inkscape.exe"
+    )
+    
+    foreach ($path in $commonPaths) {
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+    
+    return $null
+}
+
 function Convert-WithInkscape {
-    param([string]$svgFile, [string]$icoFile)
+    param([string]$svgFile, [string]$icoFile, [string]$inkscapePath)
     
     Write-Host "Converting with Inkscape..."
     $tempDir = Join-Path $env:TEMP "svg2ico_$(Get-Random)"
@@ -22,8 +45,7 @@ function Convert-WithInkscape {
         
         foreach ($size in $sizes) {
             $pngFile = Join-Path $tempDir "icon_$size.png"
-            $inkscape = (Get-Command inkscape).Path
-            & $inkscape --export-type=png --export-filename="$pngFile" --export-width=$size --export-height=$size "$svgFile" 2>&1 | Out-Null
+            & $inkscapePath --export-type=png --export-filename="$pngFile" --export-width=$size --export-height=$size "$svgFile" 2>&1 | Out-Null
             
             if (Test-Path $pngFile) {
                 $pngFiles += $pngFile
@@ -238,8 +260,11 @@ Write-Host "Converting AppIcon.svg to AppIcon.ico..."
 # Try methods in order
 $success = $false
 
-if (Test-CommandExists "inkscape") {
-    $success = Convert-WithInkscape -svgFile $SvgPath -icoFile $IcoPath
+# Method 1: Inkscape (best quality)
+$inkscapePath = Get-InkscapePath
+if ($inkscapePath) {
+    Write-Host "Found Inkscape at: $inkscapePath"
+    $success = Convert-WithInkscape -svgFile $SvgPath -icoFile $IcoPath -inkscapePath $inkscapePath
 }
 
 if (-not $success -and ((Test-CommandExists "magick") -or (Test-CommandExists "convert"))) {

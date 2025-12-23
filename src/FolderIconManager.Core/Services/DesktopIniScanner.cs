@@ -24,7 +24,7 @@ public class DesktopIniScanner
     /// <summary>
     /// Scans a directory tree for folders with custom icons
     /// </summary>
-    public ScanResult Scan(string rootPath, bool recursive = true, CancellationToken cancellationToken = default)
+    public ScanResult Scan(string rootPath, bool recursive = true, int? maxDepth = null, CancellationToken cancellationToken = default)
     {
         var result = new ScanResult();
         var stopwatch = Stopwatch.StartNew();
@@ -45,7 +45,7 @@ public class DesktopIniScanner
         try
         {
             // Find all desktop.ini files
-            var desktopIniFiles = EnumerateDesktopIniFiles(rootPath, searchOption, result, cancellationToken);
+            var desktopIniFiles = EnumerateDesktopIniFiles(rootPath, searchOption, maxDepth, result, cancellationToken);
 
             foreach (var iniPath in desktopIniFiles)
             {
@@ -136,17 +136,19 @@ public class DesktopIniScanner
     private IEnumerable<string> EnumerateDesktopIniFiles(
         string rootPath, 
         SearchOption searchOption, 
+        int? maxDepth,
         ScanResult result,
         CancellationToken cancellationToken)
     {
-        var stack = new Stack<string>();
-        stack.Push(rootPath);
+        // Use a stack of (path, depth) tuples to track depth during enumeration
+        var stack = new Stack<(string path, int depth)>();
+        stack.Push((rootPath, 0));
         var foldersScanned = 0;
 
         while (stack.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var currentDir = stack.Pop();
+            var (currentDir, currentDepth) = stack.Pop();
             foldersScanned++;
 
             // Log progress every 100 folders
@@ -165,6 +167,10 @@ public class DesktopIniScanner
             if (searchOption != SearchOption.AllDirectories)
                 continue;
 
+            // Stop recursion if we've reached the depth limit
+            if (maxDepth.HasValue && currentDepth >= maxDepth.Value)
+                continue;
+
             // Add subdirectories to stack
             try
             {
@@ -175,7 +181,7 @@ public class DesktopIniScanner
                     if (ShouldSkipDirectory(dirName))
                         continue;
 
-                    stack.Push(subDir);
+                    stack.Push((subDir, currentDepth + 1));
                 }
             }
             catch (UnauthorizedAccessException)

@@ -31,12 +31,12 @@ public class FolderIconService
     /// <summary>
     /// Scans a directory tree for folders with custom icons
     /// </summary>
-    public ScanResult Scan(string rootPath, bool recursive = true, CancellationToken cancellationToken = default)
+    public ScanResult Scan(string rootPath, bool recursive = true, int? maxDepth = null, CancellationToken cancellationToken = default)
     {
         _log.Info($"Starting scan: {rootPath}");
-        _log.Info($"Recursive: {recursive}");
+        _log.Info($"Recursive: {recursive}, MaxDepth: {maxDepth?.ToString() ?? "unlimited"}");
         
-        var result = _scanner.Scan(rootPath, recursive, cancellationToken);
+        var result = _scanner.Scan(rootPath, recursive, maxDepth, cancellationToken);
         
         _log.Success($"Scan complete: {result.FoldersWithIcons} folders with icons found");
         _log.Info($"  Local: {result.LocalIcons.Count()}, External: {result.ExternalIcons.Count()}, Broken: {result.BrokenIcons.Count()}");
@@ -403,7 +403,7 @@ public class FolderIconService
         _log.Info($"=== Starting FixAll operation ===");
         _log.Info($"Root: {rootPath}");
         
-        var scanResult = Scan(rootPath, recursive, cancellationToken);
+        var scanResult = Scan(rootPath, recursive, maxDepth: null, cancellationToken);
         
         // Only process folders with external icons
         var toProcess = scanResult.ExternalIcons.ToList();
@@ -424,7 +424,7 @@ public class FolderIconService
         _log.Info($"=== Starting RestoreAll operation ===");
         _log.Info($"Root: {rootPath}");
 
-        var scanResult = Scan(rootPath, recursive, cancellationToken);
+        var scanResult = Scan(rootPath, recursive, maxDepth: null, cancellationToken);
         var restoredCount = 0;
 
         foreach (var folder in scanResult.Folders)
@@ -453,7 +453,7 @@ public class FolderIconService
         _log.Info($"Root: {rootPath}");
         _log.Info($"Force update: {forceUpdate}");
 
-        var scanResult = Scan(rootPath, recursive, cancellationToken);
+        var scanResult = Scan(rootPath, recursive, maxDepth: null, cancellationToken);
         var updatedCount = 0;
 
         foreach (var folder in scanResult.LocalIcons)

@@ -269,8 +269,8 @@ public class MainViewModel : INotifyPropertyChanged
             // Build the folder tree
             var rootNode = await Task.Run(() => BuildFolderTree(FolderPath, _depthLimit));
             
-            // Scan for existing icons
-            var scanResult = await Task.Run(() => _service.Scan(FolderPath, IncludeSubfolders));
+            // Scan for existing icons (respecting depth limit)
+            var scanResult = await Task.Run(() => _service.Scan(FolderPath, IncludeSubfolders, _depthLimit));
             
             // Apply icon info to tree nodes
             await Task.Run(() =>
@@ -565,10 +565,10 @@ public class MainViewModel : INotifyPropertyChanged
                     _undoService.RecordOperation(undoOp);
                 }
 
-                SelectedNode.Status = FolderIconStatus.ExternalAndValid;
-                SelectedNode.HasBackup = false;
+                // Re-scan the folder to get updated IconInfo from desktop.ini
+                // This ensures the icon source column shows the restored original path
+                RefreshNodeAfterUndo(SelectedNode);
                 StatusText = "Restored to original icon";
-                RefreshNodeIcon(SelectedNode);
                 AddLog($"[INF] Restored original icon for {SelectedNode.Name}");
             }
             else

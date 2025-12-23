@@ -109,7 +109,7 @@ public partial class IconPickerDialog : Window
         var dialog = new OpenFileDialog
         {
             Title = "Select icon source file",
-            Filter = "Icon files (*.ico)|*.ico|Executable files (*.exe;*.dll)|*.exe;*.dll|All files (*.*)|*.*",
+            Filter = "Icon files (*.ico;*.exe;*.dll)|*.ico;*.exe;*.dll|All files (*.*)|*.*",
             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
         };
 

@@ -1,7 +1,9 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using FolderIconManager.GUI.Models;
 
 namespace FolderIconManager.GUI;
@@ -20,6 +22,9 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        // Set the window icon
+        LoadWindowIcon();
+        
         // Restore window state
         _viewModel?.RestoreWindowState(this);
         
@@ -30,6 +35,26 @@ public partial class MainWindow : Window
         if (_viewModel?.ThemeService != null)
         {
             _viewModel.ThemeService.ThemeChanged += () => ApplyTitleBarTheme();
+        }
+    }
+
+    private void LoadWindowIcon()
+    {
+        try
+        {
+            // Try to load the icon from the output directory
+            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AppIcon.ico");
+            
+            if (File.Exists(iconPath))
+            {
+                var iconUri = new Uri(iconPath, UriKind.Absolute);
+                Icon = BitmapFrame.Create(iconUri);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't crash the app
+            System.Diagnostics.Debug.WriteLine($"Failed to load window icon: {ex.Message}");
         }
     }
 

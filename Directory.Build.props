@@ -1,0 +1,14 @@
+<Project>
+  <!-- Centralize all build output outside src directory -->
+  <PropertyGroup>
+    <!-- Place bin folders in artifacts/bin/{ProjectName} -->
+    <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts\bin\$(MSBuildProjectName)\</BaseOutputPath>
+    
+    <!-- Place obj folders in artifacts/obj/{ProjectName} -->
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    
+    <!-- Ensure paths use backslashes consistently on Windows -->
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+</Project>
+

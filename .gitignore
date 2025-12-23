@@ -1,4 +1,7 @@
-# Build results
+# Build results (centralized in artifacts/)
+artifacts/
+
+# Legacy build output locations (in case of misconfiguration)
 [Dd]ebug/
 [Rr]elease/
 x64/
@@ -62,3 +65,6 @@ Desktop.ini
 
 # Build artifacts
 publish/
+
+# Generated icon files (built from AppIcon.svg)
+**/AppIcon.ico

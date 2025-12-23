@@ -152,6 +152,7 @@ This ensures icons look crisp at any DPI and in any view mode.
 ### Prerequisites
 - Windows 10/11
 - .NET 8.0 SDK
+- (Optional) Inkscape or ImageMagick for high-quality icon conversion
 
 ### Build
 
@@ -160,6 +161,11 @@ git clone https://github.com/guwidoe/FolderIconManager.git
 cd FolderIconManager
 dotnet build
 ```
+
+The build process automatically converts `AppIcon.svg` to `AppIcon.ico` for the application icon. For best quality:
+- Install [Inkscape](https://inkscape.org/) (recommended)
+- Or install [ImageMagick](https://imagemagick.org/)
+- Otherwise, a built-in .NET fallback will be used
 
 ### Publish Self-Contained Executables
 
@@ -177,18 +183,37 @@ dotnet publish src/FolderIconManager.CLI -c Release
 dotnet test
 ```
 
+### Customizing the Application Icon
+
+The application icon is defined in `AppIcon.svg` at the repository root. To customize:
+
+1. Edit `AppIcon.svg` with your preferred SVG editor
+2. Run `dotnet build` — the icon will automatically be converted to `AppIcon.ico`
+3. The icon appears in:
+   - The `.exe` file icon (Windows Explorer)
+   - The application window title bar
+   - The taskbar when running
+
 ## Project Structure
 
 ```
-src/
-├── FolderIconManager.Core/     # Core library
-│   ├── Models/                 # Data models
-│   ├── Native/                 # Windows API P/Invoke
-│   └── Services/               # Business logic
-├── FolderIconManager.CLI/      # Command-line interface
-└── FolderIconManager.GUI/      # WPF desktop application
-tests/
-└── FolderIconManager.Tests/    # Unit tests
+FolderIconManager/
+├── AppIcon.svg                 # Application icon source (SVG)
+├── Directory.Build.props       # Centralized build configuration
+├── build-tools/                # Build-time utilities
+│   └── ConvertSvgToIco.ps1     # SVG to ICO converter
+├── src/
+│   ├── FolderIconManager.Core/ # Core library
+│   │   ├── Models/             # Data models
+│   │   ├── Native/             # Windows API P/Invoke
+│   │   └── Services/           # Business logic
+│   ├── FolderIconManager.CLI/  # Command-line interface
+│   └── FolderIconManager.GUI/  # WPF desktop application
+├── tests/
+│   └── FolderIconManager.Tests/ # Unit tests
+└── artifacts/                  # Build output (gitignored)
+    ├── bin/                    # Compiled binaries
+    └── obj/                    # Intermediate files
 ```
 
 ## Requirements

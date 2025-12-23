@@ -15,7 +15,7 @@
     <Description>Windows utility to manage and persist custom folder icons</Description>
     <Company>Folder Icon Manager</Company>
     <Copyright>Copyright © 2025</Copyright>
-    <ApplicationIcon></ApplicationIcon>
+    <ApplicationIcon>AppIcon.ico</ApplicationIcon>
     
     <!-- Single file publish settings -->
     <PublishSingleFile>true</PublishSingleFile>
@@ -28,6 +28,28 @@
   <ItemGroup>
     <ProjectReference Include="..\FolderIconManager.Core\FolderIconManager.Core.csproj" />
   </ItemGroup>
+
+  <!-- Include the generated icon file -->
+  <ItemGroup>
+    <Content Include="AppIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Pre-build target to convert SVG to ICO -->
+  <Target Name="ConvertSvgToIco" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <SvgIconPath>$(MSBuildProjectDirectory)\..\..\AppIcon.svg</SvgIconPath>
+      <IcoIconPath>$(MSBuildProjectDirectory)\AppIcon.ico</IcoIconPath>
+      <ConvertScriptPath>$(MSBuildProjectDirectory)\..\..\build-tools\ConvertSvgToIco.ps1</ConvertScriptPath>
+    </PropertyGroup>
+    
+    <Message Text="Checking if AppIcon.svg needs to be converted to ICO..." Importance="high" />
+    
+    <Exec Command="powershell.exe -ExecutionPolicy Bypass -File &quot;$(ConvertScriptPath)&quot; -SvgPath &quot;$(SvgIconPath)&quot; -IcoPath &quot;$(IcoIconPath)&quot;" 
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="false" />
+  </Target>
 
 </Project>
 

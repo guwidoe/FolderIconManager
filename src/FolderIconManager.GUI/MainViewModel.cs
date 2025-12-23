@@ -31,8 +31,12 @@ public class MainViewModel : INotifyPropertyChanged
 
         BrowseCommand = new RelayCommand(Browse);
         ScanCommand = new RelayCommand(async () => await ScanAsync(), () => CanScan);
-        FixSelectedCommand = new RelayCommand(async () => await FixSelectedAsync(), () => HasSelection);
+        FixSelectedCommand = new RelayCommand(async () => await FixSelectedAsync(), () => HasSelection && SelectedFolder?.Status == FolderIconStatus.ExternalAndValid);
         FixAllCommand = new RelayCommand(async () => await FixAllAsync(), () => HasExternalIcons);
+        RestoreSelectedCommand = new RelayCommand(async () => await RestoreSelectedAsync(), () => HasSelection && SelectedFolder?.HasBackup == true);
+        RestoreAllCommand = new RelayCommand(async () => await RestoreAllAsync(), () => HasLocalWithBackup);
+        UpdateSelectedCommand = new RelayCommand(async () => await UpdateSelectedAsync(), () => HasSelection && SelectedFolder?.HasBackup == true);
+        UpdateAllCommand = new RelayCommand(async () => await UpdateAllAsync(), () => HasLocalWithBackup);
         ClearLogCommand = new RelayCommand(ClearLog);
     }
 
@@ -75,6 +79,8 @@ public class MainViewModel : INotifyPropertyChanged
     public bool HasSelection => SelectedFolder != null;
 
     public bool HasExternalIcons => Folders.Any(f => f.Status == FolderIconStatus.ExternalAndValid);
+    
+    public bool HasLocalWithBackup => Folders.Any(f => f.Status == FolderIconStatus.LocalAndValid && f.HasBackup);
 
     public string SummaryText
     {
@@ -84,8 +90,9 @@ public class MainViewModel : INotifyPropertyChanged
             var local = Folders.Count(f => f.Status == FolderIconStatus.LocalAndValid);
             var external = Folders.Count(f => f.Status == FolderIconStatus.ExternalAndValid);
             var broken = Folders.Count(f => f.Status is FolderIconStatus.ExternalAndBroken or FolderIconStatus.LocalButMissing);
+            var withBackup = Folders.Count(f => f.HasBackup);
             
-            return $"Total: {total}  |  Local: {local}  |  External: {external}  |  Broken: {broken}";
+            return $"Total: {total}  |  Local: {local}  |  External: {external}  |  Broken: {broken}  |  With Backup: {withBackup}";
         }
     }
 
@@ -111,6 +118,10 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand ScanCommand { get; }
     public ICommand FixSelectedCommand { get; }
     public ICommand FixAllCommand { get; }
+    public ICommand RestoreSelectedCommand { get; }
+    public ICommand RestoreAllCommand { get; }
+    public ICommand UpdateSelectedCommand { get; }
+    public ICommand UpdateAllCommand { get; }
     public ICommand ClearLogCommand { get; }
 
     #endregion
@@ -141,13 +152,53 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanScan));
         Folders.Clear();
 
+        ScanResult? result = null;
+        
         try
         {
-            var result = await Task.Run(() => _service.Scan(FolderPath, IncludeSubfolders));
+            result = await Task.Run(() => _service.Scan(FolderPath, IncludeSubfolders));
+        }
+        catch (Exception scanEx)
+        {
+            StatusText = $"Scan error: {scanEx.Message}";
+            AddLog($"[ERR] Scan failed: {scanEx.Message}");
+            AddLog($"[ERR] Stack trace: {scanEx.StackTrace}");
+            _isScanning = false;
+            RefreshProperties();
+            return;
+        }
 
+        try
+        {
+            // Create view models on UI thread
             foreach (var folder in result.Folders)
             {
-                Folders.Add(new FolderItemViewModel(folder));
+                try
+                {
+                    var vm = new FolderItemViewModel(folder);
+                    
+                    // Check for backup (with error handling)
+                    try
+                    {
+                        vm.HasBackup = _service.HasBackup(folder.FolderPath);
+                        if (vm.HasBackup)
+                        {
+                            vm.SourceChanged = _service.HasSourceChanged(folder.FolderPath);
+                        }
+                    }
+                    catch (Exception backupEx)
+                    {
+                        // Log but don't crash - backup check is optional
+                        AddLog($"[WRN] Could not check backup for {folder.FolderPath}: {backupEx.Message}");
+                    }
+                    
+                    Folders.Add(vm);
+                }
+                catch (Exception folderEx)
+                {
+                    AddLog($"[ERR] Error processing folder: {folderEx.Message}");
+                    AddLog($"[ERR] Stack: {folderEx.StackTrace}");
+                }
             }
 
             StatusText = $"Found {result.FoldersWithIcons} folder(s) with icons";
@@ -156,13 +207,19 @@ public class MainViewModel : INotifyPropertyChanged
         {
             StatusText = $"Error: {ex.Message}";
             AddLog($"[ERR] {ex.Message}");
+            AddLog($"[ERR] Stack trace: {ex.StackTrace}");
         }
         finally
         {
             _isScanning = false;
-            OnPropertyChanged(nameof(CanScan));
-            OnPropertyChanged(nameof(HasExternalIcons));
-            OnPropertyChanged(nameof(SummaryText));
+            try
+            {
+                RefreshProperties();
+            }
+            catch (Exception refreshEx)
+            {
+                AddLog($"[ERR] RefreshProperties failed: {refreshEx.Message}");
+            }
         }
     }
 
@@ -204,6 +261,7 @@ public class MainViewModel : INotifyPropertyChanged
                 if (vm != null)
                 {
                     vm.UpdateStatus(FolderIconStatus.LocalAndValid);
+                    vm.HasBackup = true;
                 }
             }
 
@@ -217,9 +275,151 @@ public class MainViewModel : INotifyPropertyChanged
         finally
         {
             _isProcessing = false;
-            OnPropertyChanged(nameof(CanScan));
-            OnPropertyChanged(nameof(HasExternalIcons));
-            OnPropertyChanged(nameof(SummaryText));
+            RefreshProperties();
+        }
+    }
+
+    private async Task RestoreSelectedAsync()
+    {
+        if (SelectedFolder == null)
+            return;
+
+        _isProcessing = true;
+        StatusText = "Restoring...";
+        OnPropertyChanged(nameof(CanScan));
+
+        try
+        {
+            var success = await Task.Run(() => _service.RestoreFromBackup(SelectedFolder.FolderPath));
+            
+            if (success)
+            {
+                SelectedFolder.UpdateStatus(FolderIconStatus.ExternalAndValid);
+                SelectedFolder.HasBackup = false;
+                StatusText = "Restored to original icon reference";
+            }
+            else
+            {
+                StatusText = "Failed to restore";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+            AddLog($"[ERR] {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshProperties();
+        }
+    }
+
+    private async Task RestoreAllAsync()
+    {
+        var foldersWithBackup = Folders.Where(f => f.HasBackup).ToList();
+        if (foldersWithBackup.Count == 0)
+            return;
+
+        _isProcessing = true;
+        StatusText = $"Restoring {foldersWithBackup.Count} folder(s)...";
+        OnPropertyChanged(nameof(CanScan));
+
+        try
+        {
+            var restoredCount = 0;
+            await Task.Run(() =>
+            {
+                foreach (var folder in foldersWithBackup)
+                {
+                    if (_service.RestoreFromBackup(folder.FolderPath))
+                    {
+                        restoredCount++;
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            folder.UpdateStatus(FolderIconStatus.ExternalAndValid);
+                            folder.HasBackup = false;
+                        });
+                    }
+                }
+            });
+
+            StatusText = $"Restored {restoredCount} folder(s)";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+            AddLog($"[ERR] {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshProperties();
+        }
+    }
+
+    private async Task UpdateSelectedAsync()
+    {
+        if (SelectedFolder == null)
+            return;
+
+        _isProcessing = true;
+        StatusText = "Updating from source...";
+        OnPropertyChanged(nameof(CanScan));
+
+        try
+        {
+            var success = await Task.Run(() => _service.UpdateFromSource(SelectedFolder.FolderPath));
+            
+            if (success)
+            {
+                SelectedFolder.SourceChanged = false;
+                StatusText = "Updated from original source";
+            }
+            else
+            {
+                StatusText = "Source not found or update failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+            AddLog($"[ERR] {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshProperties();
+        }
+    }
+
+    private async Task UpdateAllAsync()
+    {
+        _isProcessing = true;
+        StatusText = "Checking for updates...";
+        OnPropertyChanged(nameof(CanScan));
+
+        try
+        {
+            var updatedCount = await Task.Run(() => _service.UpdateAll(FolderPath, IncludeSubfolders, forceUpdate: false));
+
+            // Refresh source changed status
+            foreach (var folder in Folders.Where(f => f.HasBackup))
+            {
+                folder.SourceChanged = _service.HasSourceChanged(folder.FolderPath);
+            }
+
+            StatusText = $"Updated {updatedCount} folder(s) from changed sources";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+            AddLog($"[ERR] {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshProperties();
         }
     }
 
@@ -227,6 +427,14 @@ public class MainViewModel : INotifyPropertyChanged
     {
         LogEntries.Clear();
         _service.Log.Clear();
+    }
+
+    private void RefreshProperties()
+    {
+        OnPropertyChanged(nameof(CanScan));
+        OnPropertyChanged(nameof(HasExternalIcons));
+        OnPropertyChanged(nameof(HasLocalWithBackup));
+        OnPropertyChanged(nameof(SummaryText));
     }
 
     private void OnLogEntry(LogEntry entry)
@@ -271,6 +479,8 @@ public class MainViewModel : INotifyPropertyChanged
 public class FolderItemViewModel : INotifyPropertyChanged
 {
     private FolderIconStatus _status;
+    private bool _hasBackup;
+    private bool _sourceChanged;
 
     public FolderItemViewModel(FolderIconInfo model)
     {
@@ -296,6 +506,37 @@ public class FolderItemViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool HasBackup
+    {
+        get => _hasBackup;
+        set
+        {
+            _hasBackup = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(BackupIndicator));
+        }
+    }
+
+    public bool SourceChanged
+    {
+        get => _sourceChanged;
+        set
+        {
+            _sourceChanged = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(BackupIndicator));
+        }
+    }
+
+    public string BackupIndicator
+    {
+        get
+        {
+            if (!HasBackup) return "";
+            return SourceChanged ? "⟳" : "✎";  // ⟳ = source changed, ✎ = has backup
+        }
+    }
+
     public string StatusIcon => Status switch
     {
         FolderIconStatus.LocalAndValid => "✓",
@@ -316,20 +557,43 @@ public class FolderItemViewModel : INotifyPropertyChanged
 
     public string StatusDescription => Status switch
     {
-        FolderIconStatus.LocalAndValid => "Icon is stored locally in folder",
+        FolderIconStatus.LocalAndValid => HasBackup 
+            ? (SourceChanged ? "Local icon - source has been updated" : "Local icon - backup available")
+            : "Local icon",
         FolderIconStatus.LocalButMissing => "Local icon file is missing",
         FolderIconStatus.ExternalAndValid => "Icon references external file",
         FolderIconStatus.ExternalAndBroken => "Icon source file not found",
         _ => ""
     };
 
+    // Static frozen brushes for thread safety in WPF
+    private static readonly Brush GreenBrush;
+    private static readonly Brush YellowBrush;
+    private static readonly Brush OrangeBrush;
+    private static readonly Brush RedBrush;
+    private static readonly Brush GrayBrush;
+
+    static FolderItemViewModel()
+    {
+        GreenBrush = new SolidColorBrush(Color.FromRgb(78, 201, 176));
+        GreenBrush.Freeze();
+        YellowBrush = new SolidColorBrush(Color.FromRgb(220, 220, 170));
+        YellowBrush.Freeze();
+        OrangeBrush = new SolidColorBrush(Color.FromRgb(206, 145, 120));
+        OrangeBrush.Freeze();
+        RedBrush = new SolidColorBrush(Color.FromRgb(241, 76, 76));
+        RedBrush.Freeze();
+        GrayBrush = new SolidColorBrush(Color.FromRgb(133, 133, 133));
+        GrayBrush.Freeze();
+    }
+
     public Brush StatusBrush => Status switch
     {
-        FolderIconStatus.LocalAndValid => new SolidColorBrush(Color.FromRgb(78, 201, 176)),     // Green
-        FolderIconStatus.LocalButMissing => new SolidColorBrush(Color.FromRgb(220, 220, 170)), // Yellow
-        FolderIconStatus.ExternalAndValid => new SolidColorBrush(Color.FromRgb(206, 145, 120)), // Orange
-        FolderIconStatus.ExternalAndBroken => new SolidColorBrush(Color.FromRgb(241, 76, 76)),  // Red
-        _ => new SolidColorBrush(Color.FromRgb(133, 133, 133))
+        FolderIconStatus.LocalAndValid => GreenBrush,
+        FolderIconStatus.LocalButMissing => YellowBrush,
+        FolderIconStatus.ExternalAndValid => OrangeBrush,
+        FolderIconStatus.ExternalAndBroken => RedBrush,
+        _ => GrayBrush
     };
 
     public string SourceDescription
@@ -401,4 +665,3 @@ public class RelayCommand : ICommand
         }
     }
 }
-

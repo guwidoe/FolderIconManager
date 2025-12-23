@@ -95,6 +95,10 @@ public class FolderIconService
                     continue;
                 }
 
+                // Create backup manifest BEFORE making changes
+                _log.Debug($"  Creating backup manifest...");
+                var manifest = BackupManifest.Create(folder);
+
                 // Extract the icon
                 var localIconPath = folder.SuggestedLocalIconPath;
                 var resolvedSourcePath = folder.ResolvedIconPath!;
@@ -109,6 +113,10 @@ public class FolderIconService
                 // Update desktop.ini
                 _log.Debug($"  Updating desktop.ini...");
                 UpdateDesktopIni(folder.FolderPath, localIconPath);
+
+                // Save the backup manifest
+                _log.Debug($"  Saving backup manifest...");
+                manifest.Save(folder.FolderPath);
 
                 // Set file attributes
                 _log.Debug($"  Applying attributes...");
@@ -143,6 +151,160 @@ public class FolderIconService
         _log.Info($"  Succeeded: {result.Succeeded.Count}, Skipped: {result.Skipped.Count}, Failed: {result.Failed.Count}");
         
         return result;
+    }
+
+    /// <summary>
+    /// Restores a folder to its original icon configuration (before fix was applied)
+    /// </summary>
+    public bool RestoreFromBackup(string folderPath)
+    {
+        _log.Info($"Restoring from backup: {folderPath}");
+
+        var manifest = BackupManifest.Load(folderPath);
+        if (manifest == null)
+        {
+            _log.Error($"No backup manifest found for: {folderPath}");
+            return false;
+        }
+
+        try
+        {
+            var iniPath = Path.Combine(folderPath, "desktop.ini");
+            var iconPath = Path.Combine(folderPath, manifest.LocalIconName);
+
+            // Clear attributes so we can modify files
+            if (File.Exists(iniPath))
+            {
+                FileAttributeHelper.ClearReadOnly(iniPath);
+                FileAttributeHelper.ClearHiddenSystem(iniPath);
+            }
+
+            // Restore original desktop.ini
+            _log.Debug($"  Restoring desktop.ini to: {manifest.OriginalIconPath},{manifest.OriginalIconIndex}");
+            var iniFile = new IniFile(iniPath);
+            iniFile.WriteIconResource(manifest.OriginalIconPath, manifest.OriginalIconIndex);
+
+            // Remove the local icon file
+            if (File.Exists(iconPath))
+            {
+                _log.Debug($"  Removing local icon: {iconPath}");
+                FileAttributeHelper.ClearHiddenSystem(iconPath);
+                File.Delete(iconPath);
+            }
+
+            // Remove the backup manifest
+            _log.Debug($"  Removing backup manifest...");
+            BackupManifest.Delete(folderPath);
+
+            // Reapply attributes to desktop.ini
+            FileAttributeHelper.SetHiddenSystem(iniPath);
+            FileAttributeHelper.SetFolderReadOnly(folderPath);
+
+            // Notify shell
+            FileAttributeHelper.NotifyShellOfChange(folderPath);
+
+            _log.Success($"Restored: {folderPath}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"Failed to restore: {folderPath}", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Updates the local icon from the original source (re-extracts)
+    /// Useful when the source icon has been updated
+    /// </summary>
+    public bool UpdateFromSource(string folderPath)
+    {
+        _log.Info($"Updating from source: {folderPath}");
+
+        var manifest = BackupManifest.Load(folderPath);
+        if (manifest == null)
+        {
+            _log.Error($"No backup manifest found for: {folderPath}");
+            return false;
+        }
+
+        try
+        {
+            var sourcePath = manifest.GetResolvedSourcePath(folderPath);
+            var iconPath = Path.Combine(folderPath, manifest.LocalIconName);
+
+            if (!File.Exists(sourcePath))
+            {
+                _log.Error($"Source file no longer exists: {sourcePath}");
+                return false;
+            }
+
+            // Check if source has actually changed
+            if (!manifest.HasSourceChanged(folderPath))
+            {
+                _log.Info($"Source has not changed, skipping update");
+                return true;
+            }
+
+            _log.Debug($"  Source: {sourcePath}");
+            _log.Debug($"  Index: {manifest.OriginalIconIndex}");
+            _log.Debug($"  Target: {iconPath}");
+
+            // Clear attributes on existing icon
+            if (File.Exists(iconPath))
+            {
+                FileAttributeHelper.ClearHiddenSystem(iconPath);
+            }
+
+            // Re-extract the icon
+            ExtractIconFromPath(sourcePath, manifest.OriginalIconIndex, iconPath);
+            _log.Debug($"  Icon re-extracted ({new FileInfo(iconPath).Length:N0} bytes)");
+
+            // Update the manifest with new source metadata
+            var sourceInfo = new FileInfo(sourcePath);
+            manifest.SourceFileSize = sourceInfo.Length;
+            manifest.SourceFileModified = sourceInfo.LastWriteTimeUtc;
+            manifest.Save(folderPath);
+
+            // Reapply attributes
+            FileAttributeHelper.SetHiddenSystem(iconPath);
+
+            // Notify shell
+            FileAttributeHelper.NotifyShellOfChange(folderPath);
+
+            _log.Success($"Updated: {folderPath}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"Failed to update: {folderPath}", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a folder has a backup manifest (was previously fixed)
+    /// </summary>
+    public bool HasBackup(string folderPath)
+    {
+        return BackupManifest.Load(folderPath) != null;
+    }
+
+    /// <summary>
+    /// Gets the backup manifest for a folder, if it exists
+    /// </summary>
+    public BackupManifest? GetBackup(string folderPath)
+    {
+        return BackupManifest.Load(folderPath);
+    }
+
+    /// <summary>
+    /// Checks if the source icon has changed since the local copy was extracted
+    /// </summary>
+    public bool HasSourceChanged(string folderPath)
+    {
+        var manifest = BackupManifest.Load(folderPath);
+        return manifest?.HasSourceChanged(folderPath) ?? false;
     }
 
     /// <summary>
@@ -243,5 +405,70 @@ public class FolderIconService
         _log.Info($"=== FixAll complete ===");
 
         return (scanResult, extractResult);
+    }
+
+    /// <summary>
+    /// Restores all folders in a path to their original icon configuration
+    /// </summary>
+    public int RestoreAll(string rootPath, bool recursive = true, CancellationToken cancellationToken = default)
+    {
+        _log.Info($"=== Starting RestoreAll operation ===");
+        _log.Info($"Root: {rootPath}");
+
+        var scanResult = Scan(rootPath, recursive, cancellationToken);
+        var restoredCount = 0;
+
+        foreach (var folder in scanResult.Folders)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            if (HasBackup(folder.FolderPath))
+            {
+                if (RestoreFromBackup(folder.FolderPath))
+                {
+                    restoredCount++;
+                }
+            }
+        }
+
+        _log.Info($"=== RestoreAll complete: {restoredCount} folder(s) restored ===");
+        return restoredCount;
+    }
+
+    /// <summary>
+    /// Updates all local icons from their original sources (where source has changed)
+    /// </summary>
+    public int UpdateAll(string rootPath, bool recursive = true, bool forceUpdate = false, CancellationToken cancellationToken = default)
+    {
+        _log.Info($"=== Starting UpdateAll operation ===");
+        _log.Info($"Root: {rootPath}");
+        _log.Info($"Force update: {forceUpdate}");
+
+        var scanResult = Scan(rootPath, recursive, cancellationToken);
+        var updatedCount = 0;
+
+        foreach (var folder in scanResult.LocalIcons)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            var manifest = GetBackup(folder.FolderPath);
+            if (manifest == null)
+                continue;
+
+            var hasChanged = manifest.HasSourceChanged(folder.FolderPath);
+            if (forceUpdate || hasChanged)
+            {
+                if (hasChanged)
+                    _log.Info($"Source changed: {folder.FolderPath}");
+                
+                if (UpdateFromSource(folder.FolderPath))
+                {
+                    updatedCount++;
+                }
+            }
+        }
+
+        _log.Info($"=== UpdateAll complete: {updatedCount} folder(s) updated ===");
+        return updatedCount;
     }
 }

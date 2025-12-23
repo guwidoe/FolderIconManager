@@ -51,6 +51,28 @@ class Program
         
         fixCommand.SetHandler(HandleFix, fixPathArg, fixRecursiveOption, forceOption, dryRunOption);
 
+        // === RESTORE COMMAND ===
+        var restoreCommand = new Command("restore", "Restore folder icons to their original external references");
+        var restorePathArg = new Argument<string>("path", () => ".", "The directory to restore");
+        var restoreRecursiveOption = new Option<bool>(["--recursive", "-r"], () => true, "Process subdirectories");
+        
+        restoreCommand.AddArgument(restorePathArg);
+        restoreCommand.AddOption(restoreRecursiveOption);
+        
+        restoreCommand.SetHandler(HandleRestore, restorePathArg, restoreRecursiveOption);
+
+        // === UPDATE COMMAND ===
+        var updateCommand = new Command("update", "Update local icons from their original sources (if source changed)");
+        var updatePathArg = new Argument<string>("path", () => ".", "The directory to update");
+        var updateRecursiveOption = new Option<bool>(["--recursive", "-r"], () => true, "Process subdirectories");
+        var updateForceOption = new Option<bool>(["--force", "-f"], "Force update even if source hasn't changed");
+        
+        updateCommand.AddArgument(updatePathArg);
+        updateCommand.AddOption(updateRecursiveOption);
+        updateCommand.AddOption(updateForceOption);
+        
+        updateCommand.SetHandler(HandleUpdate, updatePathArg, updateRecursiveOption, updateForceOption);
+
         // === INFO COMMAND ===
         var infoCommand = new Command("info", "Show detailed information about a folder's icon configuration");
         var infoPathArg = new Argument<string>("path", "The folder to inspect");
@@ -61,6 +83,8 @@ class Program
         rootCommand.AddCommand(scanCommand);
         rootCommand.AddCommand(extractCommand);
         rootCommand.AddCommand(fixCommand);
+        rootCommand.AddCommand(restoreCommand);
+        rootCommand.AddCommand(updateCommand);
         rootCommand.AddCommand(infoCommand);
 
         return await rootCommand.InvokeAsync(args);
@@ -93,8 +117,8 @@ class Program
             return;
         }
 
-        Console.WriteLine($"{"Status",-20} {"Path"}");
-        Console.WriteLine(new string('-', 80));
+        Console.WriteLine($"{"Status",-20} {"Backup",-8} {"Path"}");
+        Console.WriteLine(new string('-', 90));
 
         foreach (var folder in folderList)
         {
@@ -107,7 +131,8 @@ class Program
                 _ => "? Unknown"
             };
 
-            Console.WriteLine($"{status,-20} {folder.FolderPath}");
+            var hasBackup = service.HasBackup(folder.FolderPath) ? "Yes" : "-";
+            Console.WriteLine($"{status,-20} {hasBackup,-8} {folder.FolderPath}");
         }
 
         Console.WriteLine();
@@ -233,6 +258,39 @@ class Program
         }
     }
 
+    static void HandleRestore(string path, bool recursive)
+    {
+        var fullPath = Path.GetFullPath(path);
+        Console.WriteLine($"Restoring: {fullPath}");
+        Console.WriteLine($"Recursive: {recursive}");
+        Console.WriteLine();
+
+        var service = new FolderIconService();
+        service.Log.OnLog += entry => Console.WriteLine(entry.ToString());
+
+        var restoredCount = service.RestoreAll(fullPath, recursive);
+
+        Console.WriteLine();
+        Console.WriteLine($"Restored {restoredCount} folder(s) to original icon references.");
+    }
+
+    static void HandleUpdate(string path, bool recursive, bool force)
+    {
+        var fullPath = Path.GetFullPath(path);
+        Console.WriteLine($"Updating: {fullPath}");
+        Console.WriteLine($"Recursive: {recursive}");
+        Console.WriteLine($"Force: {force}");
+        Console.WriteLine();
+
+        var service = new FolderIconService();
+        service.Log.OnLog += entry => Console.WriteLine(entry.ToString());
+
+        var updatedCount = service.UpdateAll(fullPath, recursive, forceUpdate: force);
+
+        Console.WriteLine();
+        Console.WriteLine($"Updated {updatedCount} folder(s) from original sources.");
+    }
+
     static void HandleInfo(string path)
     {
         var fullPath = Path.GetFullPath(path);
@@ -243,6 +301,7 @@ class Program
             return;
         }
 
+        var service = new FolderIconService();
         var scanner = new DesktopIniScanner();
         var iniPath = Path.Combine(fullPath, "desktop.ini");
         
@@ -270,7 +329,7 @@ class Program
         {
             Console.WriteLine($"  Icon Source: {info.CurrentIconResource.FilePath}");
             Console.WriteLine($"  Icon Index:  {info.CurrentIconResource.Index}");
-            Console.WriteLine($"  Expanded:    {info.CurrentIconResource.ExpandedFilePath}");
+            Console.WriteLine($"  Resolved:    {info.ResolvedIconPath}");
             Console.WriteLine($"  Exists:      {(info.SourceExists ? "Yes" : "No")}");
         }
 
@@ -286,16 +345,31 @@ class Program
             Console.WriteLine($"  Local Icon:  {info.LocalIconPath}");
         }
 
+        // Check for backup
+        var backup = service.GetBackup(fullPath);
+        Console.WriteLine();
+        Console.WriteLine("Backup Information:");
+        if (backup != null)
+        {
+            Console.WriteLine($"  Has Backup:       Yes");
+            Console.WriteLine($"  Backup Date:      {backup.BackupDate:yyyy-MM-dd HH:mm:ss}");
+            Console.WriteLine($"  Original Source:  {backup.OriginalIconPath},{backup.OriginalIconIndex}");
+            Console.WriteLine($"  Source Changed:   {(backup.HasSourceChanged(fullPath) ? "Yes" : "No")}");
+        }
+        else
+        {
+            Console.WriteLine($"  Has Backup:       No");
+        }
+
         // Check folder attributes
         Console.WriteLine();
         Console.WriteLine("Attributes:");
         
         var folderAttrs = File.GetAttributes(fullPath);
-        Console.WriteLine($"  Folder ReadOnly: {folderAttrs.HasFlag(FileAttributes.ReadOnly)}");
+        Console.WriteLine($"  Folder ReadOnly:    {folderAttrs.HasFlag(FileAttributes.ReadOnly)}");
         
         var iniAttrs = File.GetAttributes(iniPath);
         Console.WriteLine($"  desktop.ini Hidden: {iniAttrs.HasFlag(FileAttributes.Hidden)}");
         Console.WriteLine($"  desktop.ini System: {iniAttrs.HasFlag(FileAttributes.System)}");
     }
 }
-

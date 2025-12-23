@@ -114,7 +114,7 @@
                         <!-- Status Text -->
                         <DataGridTextColumn Header="Status" 
                                             Binding="{Binding StatusText}" 
-                                            Width="120">
+                                            Width="90">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
@@ -122,6 +122,29 @@
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
+
+                        <!-- Backup Indicator -->
+                        <DataGridTemplateColumn Header="Backup" Width="50">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding BackupIndicator}" 
+                                               FontSize="14" 
+                                               HorizontalAlignment="Center"
+                                               Foreground="{StaticResource AccentBlueBrush}">
+                                        <TextBlock.ToolTip>
+                                            <TextBlock>
+                                                <TextBlock.Text>
+                                                    <MultiBinding StringFormat="{}Has backup: {0}&#x0a;Source changed: {1}">
+                                                        <Binding Path="HasBackup"/>
+                                                        <Binding Path="SourceChanged"/>
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </TextBlock.ToolTip>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
 
                         <!-- Folder Path -->
                         <DataGridTextColumn Header="Folder" 
@@ -160,6 +183,10 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Summary -->
@@ -173,15 +200,42 @@
                                 Content="Fix Selected"
                                 Command="{Binding FixSelectedCommand}"
                                 Style="{StaticResource ModernButton}"
-                                IsEnabled="{Binding HasSelection}"
+                                ToolTip="Extract icon to local folder.ico and update desktop.ini"
                                 Margin="0,0,8,0"/>
 
                         <!-- Fix All External -->
                         <Button Grid.Column="3"
-                                Content="🔧 Fix All External"
+                                Content="🔧 Fix All"
                                 Command="{Binding FixAllCommand}"
                                 Style="{StaticResource PrimaryButton}"
-                                IsEnabled="{Binding HasExternalIcons}"/>
+                                ToolTip="Fix all folders with external icon references"
+                                Margin="0,0,16,0"/>
+
+                        <!-- Separator -->
+                        <Border Grid.Column="4" Width="1" Background="{StaticResource BackgroundLightBrush}" Margin="0,2"/>
+
+                        <!-- Restore Selected -->
+                        <Button Grid.Column="5"
+                                Content="↩ Restore"
+                                Command="{Binding RestoreSelectedCommand}"
+                                Style="{StaticResource ModernButton}"
+                                ToolTip="Restore selected folder to original external icon reference"
+                                Margin="16,0,8,0"/>
+
+                        <!-- Update Selected -->
+                        <Button Grid.Column="6"
+                                Content="⟳ Update"
+                                Command="{Binding UpdateSelectedCommand}"
+                                Style="{StaticResource ModernButton}"
+                                ToolTip="Re-extract icon from original source (if changed)"
+                                Margin="0,0,8,0"/>
+
+                        <!-- Update All -->
+                        <Button Grid.Column="7"
+                                Content="⟳ Update All"
+                                Command="{Binding UpdateAllCommand}"
+                                Style="{StaticResource ModernButton}"
+                                ToolTip="Update all local icons from changed sources"/>
                     </Grid>
                 </Border>
             </Grid>

@@ -48,21 +48,30 @@ public class ExtractionTests : IClassFixture<TestFixture>
         _fixture.ResetTestFolders();
         var service = new FolderIconService();
         var scanResult = service.Scan(_fixture.TestDataPath, recursive: true);
-        var folder = scanResult.Folders.First(f => f.FolderPath == _fixture.TestFolder1Path);
+        
+        // Get folder with external icon
+        var folder = scanResult.Folders.FirstOrDefault(f => f.FolderPath == _fixture.TestFolder1Path);
+        Assert.NotNull(folder);
+        Assert.Equal(FolderIconStatus.ExternalAndValid, folder.Status);
 
         // Act
-        var result = service.ExtractAndInstall(new[] { folder }, skipExisting: true);
+        var result = service.ExtractAndInstall(new[] { folder }, skipExisting: false);
 
         // Assert
         Assert.Single(result.Succeeded);
+        Assert.Empty(result.Failed);
         
         // Check that folder.ico was created
         var iconPath = Path.Combine(_fixture.TestFolder1Path, "folder.ico");
-        Assert.True(File.Exists(iconPath));
+        Assert.True(File.Exists(iconPath), $"Icon file should exist at {iconPath}");
         
         // Check that desktop.ini was updated
         var iniContent = File.ReadAllText(Path.Combine(_fixture.TestFolder1Path, "desktop.ini"));
         Assert.Contains("folder.ico", iniContent);
+        
+        // Check that backup manifest was created
+        var backupPath = Path.Combine(_fixture.TestFolder1Path, ".folder-icon-backup.json");
+        Assert.True(File.Exists(backupPath), "Backup manifest should exist");
     }
 
     [Fact]

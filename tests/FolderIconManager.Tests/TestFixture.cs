@@ -55,20 +55,27 @@ public class TestFixture : IDisposable
 
     public void ResetTestFolders()
     {
-        // Remove any extracted icons
-        var iconFiles = new[]
+        // Remove any extracted icons and backup manifests
+        var filesToRemove = new[]
         {
             Path.Combine(TestFolder1Path, "folder.ico"),
             Path.Combine(TestFolder2Path, "folder.ico"),
-            Path.Combine(TestFolder3Path, "folder.ico")
+            Path.Combine(TestFolder3Path, "folder.ico"),
+            Path.Combine(TestFolder1Path, ".folder-icon-backup.json"),
+            Path.Combine(TestFolder2Path, ".folder-icon-backup.json"),
+            Path.Combine(TestFolder3Path, ".folder-icon-backup.json")
         };
 
-        foreach (var iconFile in iconFiles)
+        foreach (var file in filesToRemove)
         {
-            if (File.Exists(iconFile))
+            if (File.Exists(file))
             {
-                File.SetAttributes(iconFile, FileAttributes.Normal);
-                File.Delete(iconFile);
+                try
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                    File.Delete(file);
+                }
+                catch { /* Ignore deletion errors */ }
             }
         }
 

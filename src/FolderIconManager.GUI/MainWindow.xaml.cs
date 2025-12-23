@@ -212,15 +212,36 @@ public partial class MainWindow : Window
             }
         }
 
-        foreach (var item in e.AddedItems)
+        // Check if we now have multiple selections
+        bool isMultiSelect = FolderListView.SelectedItems.Count > 1;
+
+        if (isMultiSelect)
         {
-            if (item is FolderTreeNode node)
+            // Ensure ALL selected items are in SelectedNodes (including first one that was selected earlier)
+            foreach (var item in FolderListView.SelectedItems)
             {
-                if (FolderListView.SelectedItems.Count > 1)
+                if (item is FolderTreeNode node && !_viewModel.SelectedNodes.Contains(node))
                 {
                     node.IsMultiSelected = true;
                     _viewModel.SelectedNodes.Add(node);
                 }
+            }
+        }
+        else
+        {
+            // Single selection - clear multi-selection state
+            foreach (var node in _viewModel.SelectedNodes.ToList())
+            {
+                node.IsMultiSelected = false;
+            }
+            _viewModel.SelectedNodes.Clear();
+        }
+
+        // Track last selected node
+        foreach (var item in e.AddedItems)
+        {
+            if (item is FolderTreeNode node)
+            {
                 _lastSelectedNode = node;
             }
         }

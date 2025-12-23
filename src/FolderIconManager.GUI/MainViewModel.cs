@@ -68,7 +68,7 @@ public class MainViewModel : INotifyPropertyChanged
         MakeLocalCommand = new RelayCommand(async () => await MakeLocalAsync(), () => CanMakeLocal);
         RestoreCommand = new RelayCommand(async () => await RestoreAsync(), () => CanRestore);
         UpdateFromSourceCommand = new RelayCommand(async () => await UpdateFromSourceAsync(), () => CanUpdateFromSource);
-        RemoveIconCommand = new RelayCommand(async () => await RemoveIconAsync(), () => SelectedNode?.HasIcon == true);
+        RemoveIconCommand = new RelayCommand(async () => await RemoveIconAsync(), () => CanRemoveIcon);
         FixAttributesCommand = new RelayCommand(async () => await FixAttributesAsync(), () => CanFixAttributes);
         OpenInExplorerCommand = new RelayCommand(OpenInExplorer, () => SelectedNode != null);
         CopyPathCommand = new RelayCommand(CopyPath, () => SelectedNode != null);
@@ -206,8 +206,12 @@ public class MainViewModel : INotifyPropertyChanged
 
     private bool CanMakeLocal => SelectedNode?.Status == FolderIconStatus.ExternalAndValid || 
                                   _selectedNodes.Any(n => n.Status == FolderIconStatus.ExternalAndValid);
-    private bool CanRestore => SelectedNode?.HasBackup == true;
-    private bool CanUpdateFromSource => SelectedNode?.HasBackup == true && SelectedNode?.SourceChanged == true;
+    private bool CanRestore => SelectedNode?.HasBackup == true || 
+                               _selectedNodes.Any(n => n.HasBackup);
+    private bool CanUpdateFromSource => (SelectedNode?.HasBackup == true && SelectedNode?.SourceChanged == true) ||
+                                        _selectedNodes.Any(n => n.HasBackup && n.SourceChanged);
+    private bool CanRemoveIcon => SelectedNode?.HasIcon == true ||
+                                  _selectedNodes.Any(n => n.HasIcon);
     private bool CanFixAttributes => SelectedNode?.NeedsAttributeFix == true || 
                                       _selectedNodes.Any(n => n.NeedsAttributeFix);
 
@@ -580,36 +584,44 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task RestoreAsync()
     {
-        if (SelectedNode == null) return;
+        var nodesToProcess = AllSelectedNodes.Where(n => n.HasBackup).ToList();
+        
+        if (nodesToProcess.Count == 0) return;
 
         _isProcessing = true;
-        StatusText = "Restoring...";
+        var isBulk = nodesToProcess.Count > 1;
+        StatusText = isBulk ? $"Restoring {nodesToProcess.Count} icons..." : "Restoring...";
 
         try
         {
-            // Capture state for undo BEFORE making changes  
-            var undoOp = await Task.Run(() => CaptureStateForUndo(SelectedNode, UndoOperationType.Restore, "Restore original"));
-
-            var success = await Task.Run(() => _service.RestoreFromBackup(SelectedNode.FullPath));
+            var successCount = 0;
             
-            if (success)
+            foreach (var node in nodesToProcess)
             {
-                // Record undo operation
-                if (undoOp != null)
-                {
-                    _undoService.RecordOperation(undoOp);
-                }
+                // Capture state for undo BEFORE making changes  
+                var undoOp = await Task.Run(() => CaptureStateForUndo(node, UndoOperationType.Restore, "Restore original"));
 
-                // Re-scan the folder to get updated IconInfo from desktop.ini
-                // This ensures the icon source column shows the restored original path
-                RefreshNodeAfterUndo(SelectedNode);
-                StatusText = "Restored to original icon";
-                AddLog($"[INF] Restored original icon for {SelectedNode.Name}");
+                var success = await Task.Run(() => _service.RestoreFromBackup(node.FullPath));
+                
+                if (success)
+                {
+                    // Record undo operation
+                    if (undoOp != null)
+                    {
+                        _undoService.RecordOperation(undoOp);
+                    }
+
+                    // Re-scan the folder to get updated IconInfo from desktop.ini
+                    // This ensures the icon source column shows the restored original path
+                    RefreshNodeAfterUndo(node);
+                    AddLog($"[INF] Restored original icon for {node.Name}");
+                    successCount++;
+                }
             }
-            else
-            {
-                StatusText = "Failed to restore";
-            }
+            
+            StatusText = isBulk 
+                ? $"Restored {successCount} of {nodesToProcess.Count} icons" 
+                : (successCount > 0 ? "Restored to original icon" : "Failed to restore");
         }
         catch (Exception ex)
         {
@@ -619,30 +631,40 @@ public class MainViewModel : INotifyPropertyChanged
         {
             _isProcessing = false;
             RefreshCommandStates();
+            OnPropertyChanged(nameof(SummaryText));
         }
     }
 
     private async Task UpdateFromSourceAsync()
     {
-        if (SelectedNode == null) return;
+        var nodesToProcess = AllSelectedNodes.Where(n => n.HasBackup && n.SourceChanged).ToList();
+        
+        if (nodesToProcess.Count == 0) return;
 
         _isProcessing = true;
-        StatusText = "Updating from source...";
+        var isBulk = nodesToProcess.Count > 1;
+        StatusText = isBulk ? $"Updating {nodesToProcess.Count} icons from source..." : "Updating from source...";
 
         try
         {
-            var success = await Task.Run(() => _service.UpdateFromSource(SelectedNode.FullPath));
+            var successCount = 0;
             
-            if (success)
+            foreach (var node in nodesToProcess)
             {
-                SelectedNode.SourceChanged = false;
-                StatusText = "Updated from source";
-                RefreshNodeIcon(SelectedNode);
+                var success = await Task.Run(() => _service.UpdateFromSource(node.FullPath));
+                
+                if (success)
+                {
+                    node.SourceChanged = false;
+                    RefreshNodeIcon(node);
+                    AddLog($"[INF] Updated icon from source for {node.Name}");
+                    successCount++;
+                }
             }
-            else
-            {
-                StatusText = "Failed to update";
-            }
+            
+            StatusText = isBulk 
+                ? $"Updated {successCount} of {nodesToProcess.Count} icons" 
+                : (successCount > 0 ? "Updated from source" : "Failed to update");
         }
         catch (Exception ex)
         {

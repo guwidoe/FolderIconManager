@@ -326,26 +326,23 @@ public class FolderIconService
     }
 
     /// <summary>
-    /// Extracts an icon from a fully resolved file path
+    /// Extracts an icon from a fully resolved file path.
+    /// 
+    /// Index interpretation (Windows desktop.ini convention):
+    /// - Negative values (e.g., -183) = resource ID (extracts icon with resource ID 183)
+    /// - Positive values (e.g., 5) = ordinal index (extracts the 6th icon)
+    /// 
+    /// PrivateExtractIcons handles both conventions natively.
     /// </summary>
     public void ExtractIconFromPath(string sourcePath, int index, string outputPath)
     {
-        // Handle negative indices (resource IDs) - convert to zero-based ordinal
-        // For now, we treat negative as absolute value for ordinal lookup
-        if (index < 0)
-            index = Math.Abs(index);
-
         using var extractor = new IconExtractor(sourcePath);
 
         if (extractor.IconCount == 0)
             throw new InvalidOperationException($"No icons found in {sourcePath}");
 
-        if (index >= extractor.IconCount)
-        {
-            _log.Warning($"Icon index {index} out of range (max {extractor.IconCount - 1}), using index 0");
-            index = 0;
-        }
-
+        // Pass index directly - PrivateExtractIcons handles both positive (ordinal)
+        // and negative (resource ID) indices natively
         extractor.SaveIcon(index, outputPath);
     }
 

@@ -74,52 +74,17 @@ public class IconExtractor : IDisposable
     public bool HasResourceId(int resourceId) => _iconIds.Contains(resourceId);
 
     /// <summary>
-    /// Resolves an index to the actual resource ID to use.
-    /// 
-    /// Windows desktop.ini convention:
-    /// - Positive numbers (e.g., 266) = ordinal index (0-based position in icon list)
-    /// - Negative numbers (e.g., -266) = direct resource ID (abs value)
+    /// Checks if an index refers to a resource ID (negative) or ordinal (positive).
+    /// This is for informational purposes - PrivateExtractIcons handles both natively.
     /// </summary>
-    private int ResolveToResourceId(int index)
-    {
-        // Negative numbers are direct resource IDs (Windows convention)
-        if (index < 0)
-        {
-            var resourceId = Math.Abs(index);
-            // If this resource ID exists, use it
-            if (_iconIds.Contains(resourceId))
-            {
-                return resourceId;
-            }
-            // If not found, log warning but still try to use it
-            // (in case enumeration missed it)
-            return resourceId;
-        }
-
-        // Positive numbers are ordinal indices (0-based)
-        if (index >= 0 && index < _iconIds.Count)
-        {
-            return _iconIds[index];
-        }
-
-        // Out of range - fall back to first icon
-        if (_iconIds.Count > 0)
-        {
-            return _iconIds[0];
-        }
-
-        throw new ArgumentOutOfRangeException(nameof(index), 
-            $"No icon found for index {index}. File has {_iconIds.Count} icons.");
-    }
+    public bool IsResourceIdIndex(int index) => index < 0;
 
     /// <summary>
     /// Extracts an icon and saves it to a file with all resolutions.
     /// 
-    /// Index interpretation (Windows convention):
-    /// - Positive: ordinal index (e.g., 266 = the 267th icon)
-    /// - Negative: resource ID (e.g., -266 = resource with ID 266)
-    /// 
-    /// Uses PrivateExtractIcons which matches Windows Shell behavior exactly.
+    /// Index interpretation (Windows desktop.ini convention, handled natively by PrivateExtractIcons):
+    /// - Positive: ordinal index (e.g., 5 = the 6th icon)
+    /// - Negative: resource ID (e.g., -183 = icon with resource ID 183)
     /// </summary>
     public void SaveIcon(int index, string outputPath)
     {
@@ -130,8 +95,7 @@ public class IconExtractor : IDisposable
             return;
         }
 
-        // Use PrivateExtractIcons to match Windows Shell behavior exactly
-        // This extracts at the same index that ExtractIconEx and Windows Shell use
+        // PrivateExtractIcons handles both positive (ordinal) and negative (resource ID) indices natively
         SaveIconUsingPrivateExtractIcons(index, outputPath);
     }
 
@@ -489,7 +453,10 @@ public class IconExtractor : IDisposable
 
     /// <summary>
     /// Gets an Icon object for preview purposes.
-    /// Uses PrivateExtractIcons to match Windows Shell behavior exactly.
+    /// 
+    /// Index interpretation (Windows desktop.ini convention, handled natively by PrivateExtractIcons):
+    /// - Positive: ordinal index (e.g., 5 = the 6th icon)
+    /// - Negative: resource ID (e.g., -183 = icon with resource ID 183)
     /// </summary>
     public Icon? GetIcon(int index, int size = 32)
     {
@@ -506,7 +473,7 @@ public class IconExtractor : IDisposable
             }
         }
 
-        // Use PrivateExtractIcons to get the same icon that Windows Shell uses
+        // PrivateExtractIcons handles both positive (ordinal) and negative (resource ID) indices natively
         var icons = new IntPtr[1];
         var ids = new uint[1];
         

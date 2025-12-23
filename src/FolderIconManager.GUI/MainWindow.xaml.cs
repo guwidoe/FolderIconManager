@@ -18,6 +18,25 @@ public partial class MainWindow : Window
         InitializeComponent();
         
         _viewModel = DataContext as MainViewModel;
+        
+        // Add command bindings for the log ListBox copy functionality
+        CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, CopyLogEntries_Executed, CopyLogEntries_CanExecute));
+    }
+    
+    private void CopyLogEntries_CanExecute(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = true;
+    }
+    
+    private void CopyLogEntries_Executed(object sender, ExecutedRoutedEventArgs e)
+    {
+        // Find the focused ListBox (the log panel)
+        if (Keyboard.FocusedElement is ListBox listBox && listBox.SelectedItems.Count > 0)
+        {
+            var selectedText = string.Join(Environment.NewLine, listBox.SelectedItems.Cast<object>().Select(x => x.ToString()));
+            Clipboard.SetText(selectedText);
+            e.Handled = true;
+        }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)

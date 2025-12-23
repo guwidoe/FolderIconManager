@@ -479,21 +479,51 @@
                 </Border>
 
                 <!-- Log Content -->
-                <ScrollViewer Grid.Row="1" 
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding LogEntries}" Margin="8">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" 
-                                           FontFamily="Cascadia Code, Consolas, Courier New"
-                                           FontSize="11"
-                                           Foreground="{Binding Converter={StaticResource LogLevelToBrushConverter}}"
-                                           Margin="0,1"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                <ListBox Grid.Row="1" 
+                         ItemsSource="{Binding LogEntries}" 
+                         SelectionMode="Extended"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Margin="8"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="2,1"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border Background="{TemplateBinding Background}" 
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#33FFFFFF"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy Selected" Command="ApplicationCommands.Copy"/>
+                            <MenuItem Header="Select All" Command="ApplicationCommands.SelectAll"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" 
+                                       FontFamily="Cascadia Code, Consolas, Courier New"
+                                       FontSize="11"
+                                       Foreground="{Binding Converter={StaticResource LogLevelToBrushConverter}}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
         </Border>
     </Grid>

@@ -12,6 +12,7 @@ public class IconExtractor : IDisposable
     private readonly string _filePath;
     private readonly IntPtr _hModule;
     private readonly List<int> _iconIds = [];
+    private int _iconCountFromExtractIconEx;
     private bool _disposed;
 
     public IconExtractor(string filePath)
@@ -51,14 +52,16 @@ public class IconExtractor : IDisposable
             throw new InvalidOperationException($"Failed to load file as resource library: {_filePath} (Win32 Error: {error})");
         }
 
-        // Enumerate icon group resources
+        // Enumerate icon group resources (handles both integer and string-named resources)
         EnumerateIconGroups();
     }
 
     /// <summary>
-    /// Number of icon groups in the file
+    /// Number of icon groups in the file.
+    /// Uses the higher of: enumerated resource IDs count or ExtractIconEx count.
+    /// This handles both integer-named and string-named icon resources.
     /// </summary>
-    public int IconCount => _iconIds.Count;
+    public int IconCount => Math.Max(_iconIds.Count, _iconCountFromExtractIconEx);
 
     /// <summary>
     /// Gets all resource IDs in the file
@@ -536,11 +539,12 @@ public class IconExtractor : IDisposable
 
     private void EnumerateIconGroups()
     {
+        // Method 1: Try to enumerate integer-named icon resources via EnumResourceNames
         // Keep a reference to the delegate to prevent GC
         NativeMethods.EnumResNameDelegate callback = (hModule, lpType, lpName, lParam) =>
         {
             // lpName can be an integer ID or a string name
-            // We only support integer IDs for simplicity
+            // We only add integer IDs to the list (for backward compatibility with resource ID lookup)
             if (IsIntResource(lpName))
             {
                 _iconIds.Add((int)lpName);
@@ -575,6 +579,12 @@ public class IconExtractor : IDisposable
         // but EnumResourceNames returns them in file storage order (which may differ).
         // Without this sort, icon index 266 might extract the wrong icon.
         _iconIds.Sort();
+        
+        // Method 2: Use ExtractIconEx to get icon count
+        // This is essential because some executables (like VirtualBox.exe) have string-named 
+        // icon resources (e.g., "IDI_ICON1") that EnumResourceNames finds but we skip above.
+        // ExtractIconEx with index -1 returns the total count of icons regardless of naming.
+        _iconCountFromExtractIconEx = (int)NativeMethods.ExtractIconEx(_filePath, -1, null, null, 0);
     }
 
     private static bool IsIntResource(IntPtr value) => ((long)value >> 16) == 0;

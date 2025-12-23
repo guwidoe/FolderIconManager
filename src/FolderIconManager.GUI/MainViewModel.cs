@@ -1243,6 +1243,10 @@ public class MainViewModel : INotifyPropertyChanged
     {
         foreach (var node in nodes)
         {
+            // Skip dummy "Loading..." placeholder nodes
+            if (node.Name == "Loading...")
+                continue;
+                
             yield return node;
             foreach (var child in GetAllNodes(node.Children))
             {

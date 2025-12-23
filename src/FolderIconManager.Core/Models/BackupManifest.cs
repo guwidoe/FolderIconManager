@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using FolderIconManager.Core.Native;
 
 namespace FolderIconManager.Core.Models;
 
 /// <summary>
 /// Represents the backup information for a folder's icon configuration.
-/// Stored as a hidden JSON file alongside the desktop.ini
+/// Stored as a protected OS file (hidden + system) alongside the desktop.ini,
+/// invisible unless "Show protected operating system files" is enabled in Explorer.
 /// </summary>
 public class BackupManifest
 {
@@ -114,8 +116,9 @@ public class BackupManifest
         var json = JsonSerializer.Serialize(this, options);
         File.WriteAllText(path, json);
 
-        // Make the manifest hidden
-        File.SetAttributes(path, FileAttributes.Hidden);
+        // Make the manifest a protected OS file (hidden + system), same as desktop.ini
+        // This prevents it from showing in Explorer unless "Show protected operating system files" is enabled
+        FileAttributeHelper.SetHiddenSystem(path);
     }
 
     /// <summary>

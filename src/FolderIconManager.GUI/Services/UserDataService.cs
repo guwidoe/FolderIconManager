@@ -183,6 +183,7 @@ public class UserSettings
     public bool ShowHiddenFolders { get; set; } = false;
     public bool DefaultToLocalIcons { get; set; } = true;
     public string LocalIconFileName { get; set; } = "folder.ico";
+    public AppTheme Theme { get; set; } = AppTheme.System;
 
     // Window state
     public double? WindowLeft { get; set; }
@@ -227,5 +228,15 @@ public class IconReference : IEquatable<IconReference>
 
     public override bool Equals(object? obj) => Equals(obj as IconReference);
     public override int GetHashCode() => HashCode.Combine(FilePath?.ToLowerInvariant(), Index);
+}
+
+/// <summary>
+/// Application theme mode
+/// </summary>
+public enum AppTheme
+{
+    System,
+    Dark,
+    Light
 }
 

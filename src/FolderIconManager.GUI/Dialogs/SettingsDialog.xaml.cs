@@ -8,12 +8,14 @@ namespace FolderIconManager.GUI.Dialogs;
 public partial class SettingsDialog : Window
 {
     private readonly UserDataService _userData;
+    private readonly ThemeService _themeService;
     private readonly List<string> _defaultSources;
 
-    public SettingsDialog(UserDataService userData)
+    public SettingsDialog(UserDataService userData, ThemeService? themeService = null)
     {
         InitializeComponent();
         _userData = userData;
+        _themeService = themeService ?? new ThemeService();
         
         // Store default sources for reset
         _defaultSources =
@@ -35,6 +37,15 @@ public partial class SettingsDialog : Window
     private void LoadSettings()
     {
         var settings = _userData.Settings;
+
+        // Theme
+        ThemeComboBox.SelectedIndex = settings.Theme switch
+        {
+            AppTheme.System => 0,
+            AppTheme.Dark => 1,
+            AppTheme.Light => 2,
+            _ => 0
+        };
 
         // Scanning
         IncludeSubfoldersCheckBox.IsChecked = settings.IncludeSubfoldersByDefault;
@@ -73,6 +84,21 @@ public partial class SettingsDialog : Window
     private void SaveSettings()
     {
         var settings = _userData.Settings;
+
+        // Theme
+        var newTheme = ThemeComboBox.SelectedIndex switch
+        {
+            0 => AppTheme.System,
+            1 => AppTheme.Dark,
+            2 => AppTheme.Light,
+            _ => AppTheme.System
+        };
+        
+        if (settings.Theme != newTheme)
+        {
+            settings.Theme = newTheme;
+            _themeService.ApplyTheme(newTheme);
+        }
 
         // Scanning
         settings.IncludeSubfoldersByDefault = IncludeSubfoldersCheckBox.IsChecked == true;

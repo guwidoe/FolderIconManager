@@ -18,6 +18,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IconCacheService _iconCache;
     private readonly UserDataService _userData;
     private readonly UndoService _undoService;
+    private readonly ThemeService _themeService;
     
     private string _folderPath = "";
     private bool _includeSubfolders = true;
@@ -40,6 +41,9 @@ public class MainViewModel : INotifyPropertyChanged
         _userData = new UserDataService();
         _undoService = new UndoService();
         _undoService.UndoStackChanged += () => OnPropertyChanged(nameof(CanUndo));
+        
+        _themeService = new ThemeService();
+        _themeService.ApplyTheme(_userData.Settings.Theme);
 
         RootNodes = [];
         LogEntries = [];
@@ -1077,7 +1081,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void OpenSettings()
     {
-        var dialog = new Dialogs.SettingsDialog(_userData);
+        var dialog = new Dialogs.SettingsDialog(_userData, _themeService);
         dialog.Owner = Application.Current.MainWindow;
         
         if (dialog.ShowDialog() == true)

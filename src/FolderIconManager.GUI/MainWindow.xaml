@@ -442,6 +442,8 @@
                             <MenuItem Header="📋 Copy Path" 
                                       Command="{Binding CopyPathCommand}"
                                       InputGestureText="Ctrl+C"/>
+                            <MenuItem Header="📋 Copy Icon Source Path" 
+                                      Command="{Binding CopyIconSourcePathCommand}"/>
                         </ContextMenu>
                     </TreeView.ContextMenu>
                 </TreeView>

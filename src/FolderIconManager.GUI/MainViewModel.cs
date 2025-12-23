@@ -69,6 +69,7 @@ public class MainViewModel : INotifyPropertyChanged
         RemoveIconCommand = new RelayCommand(async () => await RemoveIconAsync(), () => SelectedNode?.HasIcon == true);
         OpenInExplorerCommand = new RelayCommand(OpenInExplorer, () => SelectedNode != null);
         CopyPathCommand = new RelayCommand(CopyPath, () => SelectedNode != null);
+        CopyIconSourcePathCommand = new RelayCommand(CopyIconSourcePath, () => SelectedNode?.HasIcon == true);
         
         // Undo
         UndoCommand = new RelayCommand(async () => await UndoAsync(), () => CanUndo);
@@ -216,6 +217,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RemoveIconCommand { get; }
     public ICommand OpenInExplorerCommand { get; }
     public ICommand CopyPathCommand { get; }
+    public ICommand CopyIconSourcePathCommand { get; }
     public ICommand UndoCommand { get; }
     public ICommand ClearLogCommand { get; }
     public ICommand OpenSettingsCommand { get; }
@@ -1019,6 +1021,29 @@ public class MainViewModel : INotifyPropertyChanged
         {
             Clipboard.SetText(SelectedNode.FullPath);
             StatusText = "Path copied to clipboard";
+        }
+        catch
+        {
+            // Clipboard errors - ignore
+        }
+    }
+
+    private void CopyIconSourcePath()
+    {
+        if (SelectedNode == null || !SelectedNode.HasIcon) return;
+        
+        try
+        {
+            var sourcePath = SelectedNode.SourceDescription;
+            if (!string.IsNullOrEmpty(sourcePath))
+            {
+                Clipboard.SetText(sourcePath);
+                StatusText = "Icon source path copied to clipboard";
+            }
+            else
+            {
+                StatusText = "No icon source path available";
+            }
         }
         catch
         {

@@ -73,6 +73,71 @@ public static class FileAttributeHelper
     }
 
     /// <summary>
+    /// Checks if a folder has the read-only attribute (required for custom folder icons to work)
+    /// </summary>
+    public static bool IsFolderReadOnly(string path)
+    {
+        var attrs = NativeMethods.GetFileAttributes(path);
+        if (attrs == NativeMethods.INVALID_FILE_ATTRIBUTES)
+            return false;
+
+        return (attrs & NativeMethods.FILE_ATTRIBUTE_READONLY) != 0;
+    }
+
+    /// <summary>
+    /// Checks if a desktop.ini file has the correct attributes (Hidden + System)
+    /// </summary>
+    public static bool HasCorrectDesktopIniAttributes(string desktopIniPath)
+    {
+        if (!File.Exists(desktopIniPath))
+            return false;
+
+        var attrs = NativeMethods.GetFileAttributes(desktopIniPath);
+        if (attrs == NativeMethods.INVALID_FILE_ATTRIBUTES)
+            return false;
+
+        var hasHidden = (attrs & NativeMethods.FILE_ATTRIBUTE_HIDDEN) != 0;
+        var hasSystem = (attrs & NativeMethods.FILE_ATTRIBUTE_SYSTEM) != 0;
+
+        return hasHidden && hasSystem;
+    }
+
+    /// <summary>
+    /// Checks if a folder has all the required attributes for custom icons to display:
+    /// - Folder has ReadOnly attribute
+    /// - desktop.ini has Hidden and System attributes
+    /// </summary>
+    public static (bool FolderOk, bool DesktopIniOk) CheckFolderIconAttributes(string folderPath)
+    {
+        var folderOk = IsFolderReadOnly(folderPath);
+        var desktopIniPath = Path.Combine(folderPath, "desktop.ini");
+        var iniOk = HasCorrectDesktopIniAttributes(desktopIniPath);
+
+        return (folderOk, iniOk);
+    }
+
+    /// <summary>
+    /// Fixes the attributes on a folder and its desktop.ini to make custom icons display correctly
+    /// </summary>
+    public static bool FixFolderIconAttributes(string folderPath)
+    {
+        var desktopIniPath = Path.Combine(folderPath, "desktop.ini");
+        
+        if (!File.Exists(desktopIniPath))
+            return false;
+
+        var folderFixed = SetFolderReadOnly(folderPath);
+        var iniFixed = SetHiddenSystem(desktopIniPath);
+
+        if (folderFixed || iniFixed)
+        {
+            NotifyShellOfChange(folderPath);
+        }
+
+        return folderFixed && iniFixed;
+    }
+
+    /// <summary>
     /// Removes the read-only attribute from a file (useful before modifying desktop.ini)
     /// </summary>
     public static bool ClearReadOnly(string path)

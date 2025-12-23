@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using FolderIconManager.Core.Models;
 using FolderIconManager.Core.Services;
@@ -32,6 +33,7 @@ public class MainViewModel : INotifyPropertyChanged
     private List<FolderTreeNode> _allNodes = [];
     private HashSet<FolderTreeNode> _selectedNodes = [];
     private ColumnSettings _columnWidths = new();
+    private ICollectionView? _filteredNodesView;
 
     public MainViewModel()
     {
@@ -67,6 +69,7 @@ public class MainViewModel : INotifyPropertyChanged
         RestoreCommand = new RelayCommand(async () => await RestoreAsync(), () => CanRestore);
         UpdateFromSourceCommand = new RelayCommand(async () => await UpdateFromSourceAsync(), () => CanUpdateFromSource);
         RemoveIconCommand = new RelayCommand(async () => await RemoveIconAsync(), () => SelectedNode?.HasIcon == true);
+        FixAttributesCommand = new RelayCommand(async () => await FixAttributesAsync(), () => CanFixAttributes);
         OpenInExplorerCommand = new RelayCommand(OpenInExplorer, () => SelectedNode != null);
         CopyPathCommand = new RelayCommand(CopyPath, () => SelectedNode != null);
         CopyIconSourcePathCommand = new RelayCommand(CopyIconSourcePath, () => SelectedNode?.HasIcon == true);
@@ -162,6 +165,24 @@ public class MainViewModel : INotifyPropertyChanged
 
     public ColumnSettings ColumnWidths => _columnWidths;
 
+    /// <summary>
+    /// Flattened list of all tree nodes for use with ListView
+    /// </summary>
+    public ObservableCollection<FolderTreeNode> FlattenedNodes { get; } = [];
+
+    /// <summary>
+    /// Filtered view of FlattenedNodes that only shows visible nodes
+    /// </summary>
+    public ICollectionView? FilteredNodesView
+    {
+        get => _filteredNodesView;
+        private set
+        {
+            _filteredNodesView = value;
+            OnPropertyChanged();
+        }
+    }
+
     public int SelectedCount => _selectedNodes.Count;
 
     public bool HasMultiSelection => _selectedNodes.Count > 1;
@@ -187,6 +208,8 @@ public class MainViewModel : INotifyPropertyChanged
                                   _selectedNodes.Any(n => n.Status == FolderIconStatus.ExternalAndValid);
     private bool CanRestore => SelectedNode?.HasBackup == true;
     private bool CanUpdateFromSource => SelectedNode?.HasBackup == true && SelectedNode?.SourceChanged == true;
+    private bool CanFixAttributes => SelectedNode?.NeedsAttributeFix == true || 
+                                      _selectedNodes.Any(n => n.NeedsAttributeFix);
 
     public string SummaryText
     {
@@ -215,6 +238,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RestoreCommand { get; }
     public ICommand UpdateFromSourceCommand { get; }
     public ICommand RemoveIconCommand { get; }
+    public ICommand FixAttributesCommand { get; }
     public ICommand OpenInExplorerCommand { get; }
     public ICommand CopyPathCommand { get; }
     public ICommand CopyIconSourcePathCommand { get; }
@@ -294,6 +318,13 @@ public class MainViewModel : INotifyPropertyChanged
                         }
                         catch { /* Ignore backup check errors */ }
 
+                        // Check attribute status
+                        try
+                        {
+                            node.CheckAttributes();
+                        }
+                        catch { /* Ignore attribute check errors */ }
+
                         // Mark parents as having icons in subtree
                         var parent = node.Parent;
                         while (parent != null)
@@ -315,6 +346,10 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 RootNodes.Add(rootNode);
                 _allNodes = GetAllNodes(RootNodes).ToList();
+                
+                // Build flattened list for TreeListView
+                BuildFlattenedList();
+                
                 StatusText = $"Found {scanResult.FoldersWithIcons} folder(s) with icons";
                 OnPropertyChanged(nameof(SummaryText));
                 
@@ -687,6 +722,51 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task FixAttributesAsync()
+    {
+        var nodesToProcess = AllSelectedNodes.Where(n => n.NeedsAttributeFix).ToList();
+        
+        if (nodesToProcess.Count == 0) return;
+
+        _isProcessing = true;
+        var isBulk = nodesToProcess.Count > 1;
+        StatusText = isBulk ? $"Fixing attributes for {nodesToProcess.Count} folders..." : "Fixing attributes...";
+
+        try
+        {
+            var successCount = 0;
+            
+            foreach (var node in nodesToProcess)
+            {
+                var result = await Task.Run(() => node.FixAttributes());
+                
+                if (result)
+                {
+                    AddLog($"[INF] Fixed attributes for {node.Name}");
+                    successCount++;
+                }
+                else
+                {
+                    AddLog($"[WRN] Failed to fix attributes for {node.Name}");
+                }
+            }
+
+            StatusText = isBulk 
+                ? $"Fixed attributes for {successCount} of {nodesToProcess.Count} folders" 
+                : (successCount > 0 ? "Attributes fixed" : "Failed to fix attributes");
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+            AddLog($"[ERR] {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshCommandStates();
+        }
+    }
+
     private UndoOperation? CaptureStateForUndo(FolderTreeNode node, UndoOperationType type, string description)
     {
         string? originalPath = null;
@@ -988,6 +1068,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 node.SourceChanged = false;
             }
+            node.CheckAttributes();
             RefreshNodeIcon(node);
         }
         catch
@@ -995,6 +1076,7 @@ public class MainViewModel : INotifyPropertyChanged
             node.IconInfo = null;
             node.HasBackup = false;
             node.SourceChanged = false;
+            node.AttributeStatus = Models.AttributeStatus.Unknown;
             node.IconImage = _iconCache.DefaultFolderIcon;
         }
     }
@@ -1076,14 +1158,14 @@ public class MainViewModel : INotifyPropertyChanged
 
             node.IsFiltered = !(matchesFilter && matchesSearch);
             
-            // If a node matches, make sure its ancestors are visible
-            if (!node.IsFiltered)
+            // If a node matches, make sure its ancestors are expanded to show it
+            if (!node.IsFiltered && (_filterMode != FilterMode.All || !string.IsNullOrEmpty(searchText)))
             {
                 var parent = node.Parent;
                 while (parent != null)
                 {
                     parent.IsFiltered = false;
-                    if (!parent.IsExpanded && (matchesFilter && matchesSearch))
+                    if (!parent.IsExpanded)
                     {
                         parent.IsExpanded = true;
                     }
@@ -1092,14 +1174,15 @@ public class MainViewModel : INotifyPropertyChanged
             }
         }
 
+        // Refresh the collection view
+        RefreshFilteredView();
+
         // Update summary
-        var visibleCount = _allNodes.Count(n => !n.IsFiltered);
+        var visibleCount = FilteredNodesView?.Cast<FolderTreeNode>().Count() ?? 0;
         if (_filterMode != FilterMode.All || !string.IsNullOrEmpty(searchText))
         {
             StatusText = $"Showing {visibleCount} of {_allNodes.Count} folders";
         }
-        
-        OnPropertyChanged(nameof(SummaryText));
     }
 
     private void ClearLog()
@@ -1166,6 +1249,87 @@ public class MainViewModel : INotifyPropertyChanged
                 yield return child;
             }
         }
+    }
+
+    /// <summary>
+    /// Builds the flattened list from the hierarchical tree structure
+    /// </summary>
+    private void BuildFlattenedList()
+    {
+        FlattenedNodes.Clear();
+        
+        foreach (var node in _allNodes)
+        {
+            // Subscribe to property changes for visibility updates
+            node.PropertyChanged -= OnNodePropertyChanged;
+            node.PropertyChanged += OnNodePropertyChanged;
+            FlattenedNodes.Add(node);
+        }
+
+        // Set up the filtered view
+        FilteredNodesView = CollectionViewSource.GetDefaultView(FlattenedNodes);
+        FilteredNodesView.Filter = FilterNode;
+    }
+
+    /// <summary>
+    /// Handle node property changes (especially IsExpanded) to refresh filtering
+    /// </summary>
+    private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FolderTreeNode.IsExpanded) ||
+            e.PropertyName == nameof(FolderTreeNode.IsVisible))
+        {
+            // Refresh the view to update visibility
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                FilteredNodesView?.Refresh();
+            });
+        }
+    }
+
+    /// <summary>
+    /// Filter predicate for the collection view
+    /// </summary>
+    private bool FilterNode(object obj)
+    {
+        if (obj is not FolderTreeNode node)
+            return false;
+
+        // First check tree visibility (parent expansion state)
+        if (!node.IsVisible)
+            return false;
+
+        // Then apply user filter mode
+        bool matchesFilter = _filterMode switch
+        {
+            FilterMode.All => true,
+            FilterMode.WithIcons => node.HasIcon,
+            FilterMode.ExternalOnly => node.Status == FolderIconStatus.ExternalAndValid,
+            FilterMode.LocalOnly => node.Status == FolderIconStatus.LocalAndValid,
+            FilterMode.BrokenOnly => node.Status is FolderIconStatus.ExternalAndBroken or FolderIconStatus.LocalButMissing,
+            _ => true
+        };
+
+        if (!matchesFilter)
+            return false;
+
+        // Then apply text search
+        var searchText = _filterText?.Trim().ToLowerInvariant() ?? "";
+        if (string.IsNullOrEmpty(searchText))
+            return true;
+
+        return node.Name.ToLowerInvariant().Contains(searchText) ||
+               node.SourceDescription.ToLowerInvariant().Contains(searchText) ||
+               node.FullPath.ToLowerInvariant().Contains(searchText);
+    }
+
+    /// <summary>
+    /// Refreshes the filtered view (call after filter changes)
+    /// </summary>
+    public void RefreshFilteredView()
+    {
+        FilteredNodesView?.Refresh();
+        OnPropertyChanged(nameof(SummaryText));
     }
 
     #endregion

@@ -195,6 +195,45 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Handles ListView selection change
+    /// </summary>
+    private void ListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_viewModel == null) return;
+
+        // Update multi-selection tracking
+        foreach (var item in e.RemovedItems)
+        {
+            if (item is FolderTreeNode node)
+            {
+                node.IsMultiSelected = false;
+                _viewModel.SelectedNodes.Remove(node);
+            }
+        }
+
+        foreach (var item in e.AddedItems)
+        {
+            if (item is FolderTreeNode node)
+            {
+                if (FolderListView.SelectedItems.Count > 1)
+                {
+                    node.IsMultiSelected = true;
+                    _viewModel.SelectedNodes.Add(node);
+                }
+                _lastSelectedNode = node;
+            }
+        }
+
+        // Update selected node for single selection
+        if (FolderListView.SelectedItem is FolderTreeNode selectedNode)
+        {
+            _viewModel.SelectedNode = selectedNode;
+        }
+
+        _viewModel.OnMultiSelectionChanged();
+    }
+
     private void ClearMultiSelection()
     {
         if (_viewModel == null) return;

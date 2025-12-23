@@ -5,14 +5,16 @@ using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FolderIconManager.Core.Models;
+using FolderIconManager.Core.Native;
 using FolderIconManager.Core.Services;
+using FolderIconManager.GUI.Controls;
 
 namespace FolderIconManager.GUI.Models;
 
 /// <summary>
 /// Represents a folder node in the tree view with lazy-loading children
 /// </summary>
-public class FolderTreeNode : INotifyPropertyChanged
+public class FolderTreeNode : INotifyPropertyChanged, ITreeListViewNode
 {
     private bool _isExpanded;
     private bool _isSelected;
@@ -24,6 +26,7 @@ public class FolderTreeNode : INotifyPropertyChanged
     private ImageSource? _iconImage;
     private FolderIconStatus _status = FolderIconStatus.NoIcon;
     private FolderIconInfo? _iconInfo;
+    private AttributeStatus _attributeStatus = AttributeStatus.Unknown;
 
     // Dummy node used to show expander arrow before loading
     private static readonly FolderTreeNode DummyNode = new() { Name = "Loading...", _isLoaded = true };
@@ -94,13 +97,30 @@ public class FolderTreeNode : INotifyPropertyChanged
             {
                 _isExpanded = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(HasChildren));
 
                 // Lazy load children when expanded
                 if (value && !_isLoaded)
                 {
                     LoadChildren();
                 }
+
+                // Notify all descendants that their visibility may have changed
+                NotifyDescendantsVisibilityChanged();
             }
+        }
+    }
+
+    /// <summary>
+    /// Notifies all descendants that their visibility may have changed
+    /// </summary>
+    private void NotifyDescendantsVisibilityChanged()
+    {
+        foreach (var child in Children)
+        {
+            if (child.Name == "Loading...") continue; // Skip dummy nodes
+            child.NotifyVisibilityChanged();
+            child.NotifyDescendantsVisibilityChanged();
         }
     }
 
@@ -165,6 +185,69 @@ public class FolderTreeNode : INotifyPropertyChanged
 
     #endregion
 
+    #region ITreeListViewNode Implementation
+
+    /// <summary>
+    /// The depth level in the tree (0 = root)
+    /// </summary>
+    public int Level
+    {
+        get
+        {
+            int level = 0;
+            var current = Parent;
+            while (current != null)
+            {
+                level++;
+                current = current.Parent;
+            }
+            return level;
+        }
+    }
+
+    /// <summary>
+    /// Whether this node has any children
+    /// </summary>
+    public bool HasChildren => Children.Count > 0;
+
+    /// <summary>
+    /// Whether this node should be visible in a flat list view.
+    /// A node is visible if it's not filtered AND all ancestors are expanded.
+    /// </summary>
+    public bool IsVisible
+    {
+        get
+        {
+            // Root nodes are always potentially visible (unless filtered)
+            if (Parent == null)
+                return !_isFiltered;
+
+            // Check if filtered
+            if (_isFiltered)
+                return false;
+
+            // Check if all ancestors are expanded (and not filtered)
+            var current = Parent;
+            while (current != null)
+            {
+                if (!current.IsExpanded || current._isFiltered)
+                    return false;
+                current = current.Parent;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Notifies that visibility may have changed (call after expand/collapse)
+    /// </summary>
+    public void NotifyVisibilityChanged()
+    {
+        OnPropertyChanged(nameof(IsVisible));
+    }
+
+    #endregion
+
     #region Display Properties
 
     public string BackupIndicator
@@ -186,6 +269,56 @@ public class FolderTreeNode : INotifyPropertyChanged
                 : "Has local backup - can restore to original";
         }
     }
+
+    public AttributeStatus AttributeStatus
+    {
+        get => _attributeStatus;
+        set
+        {
+            if (_attributeStatus != value)
+            {
+                _attributeStatus = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(AttributeStatusIcon));
+                OnPropertyChanged(nameof(AttributeStatusText));
+                OnPropertyChanged(nameof(AttributeStatusBrush));
+                OnPropertyChanged(nameof(AttributeTooltip));
+                OnPropertyChanged(nameof(NeedsAttributeFix));
+            }
+        }
+    }
+
+    public bool NeedsAttributeFix => _attributeStatus == AttributeStatus.NeedsFix;
+
+    public string AttributeStatusIcon => _attributeStatus switch
+    {
+        AttributeStatus.Ok => "✓",
+        AttributeStatus.NeedsFix => "⚠",
+        AttributeStatus.NotApplicable => "",
+        _ => ""
+    };
+
+    public string AttributeStatusText => _attributeStatus switch
+    {
+        AttributeStatus.Ok => "OK",
+        AttributeStatus.NeedsFix => "Fix",
+        AttributeStatus.NotApplicable => "",
+        _ => ""
+    };
+
+    public Brush AttributeStatusBrush => _attributeStatus switch
+    {
+        AttributeStatus.Ok => GreenBrush,
+        AttributeStatus.NeedsFix => YellowBrush,
+        _ => GrayBrush
+    };
+
+    public string AttributeTooltip => _attributeStatus switch
+    {
+        AttributeStatus.Ok => "Folder and desktop.ini attributes are correctly set",
+        AttributeStatus.NeedsFix => "Attributes need to be fixed for custom icon to display",
+        _ => ""
+    };
 
     public string StatusIcon => Status switch
     {
@@ -389,5 +522,59 @@ public class FolderTreeNode : INotifyPropertyChanged
     }
 
     #endregion
+
+    #region Attribute Checking
+
+    /// <summary>
+    /// Checks the folder's attributes and updates the AttributeStatus property
+    /// </summary>
+    public void CheckAttributes()
+    {
+        // Only check if this folder has an icon configured
+        if (!HasIcon)
+        {
+            AttributeStatus = AttributeStatus.NotApplicable;
+            return;
+        }
+
+        var (folderOk, iniOk) = FileAttributeHelper.CheckFolderIconAttributes(FullPath);
+        AttributeStatus = (folderOk && iniOk) ? AttributeStatus.Ok : AttributeStatus.NeedsFix;
+    }
+
+    /// <summary>
+    /// Fixes the folder's attributes to make the custom icon display correctly
+    /// </summary>
+    public bool FixAttributes()
+    {
+        if (!HasIcon)
+            return false;
+
+        var result = FileAttributeHelper.FixFolderIconAttributes(FullPath);
+        if (result)
+        {
+            AttributeStatus = AttributeStatus.Ok;
+        }
+        return result;
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// Status of folder icon attributes
+/// </summary>
+public enum AttributeStatus
+{
+    /// <summary>Not yet checked or not applicable (no icon)</summary>
+    Unknown,
+    
+    /// <summary>No icon configured, attributes don't matter</summary>
+    NotApplicable,
+    
+    /// <summary>Folder and desktop.ini have correct attributes</summary>
+    Ok,
+    
+    /// <summary>Attributes need to be fixed for icon to display</summary>
+    NeedsFix
 }
 

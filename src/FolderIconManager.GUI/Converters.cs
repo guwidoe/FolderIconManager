@@ -114,3 +114,70 @@ public class InverseBoolConverter : IValueConverter
         return false;
     }
 }
+
+/// <summary>
+/// Converts tree node level to left margin for indentation
+/// </summary>
+public class TreeLevelToIndentConverter : IValueConverter
+{
+    private const double IndentSize = 20.0;
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is int level)
+        {
+            return new Thickness(level * IndentSize, 0, 0, 0);
+        }
+        return new Thickness(0);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Converts tree node level to width for indentation spacer
+/// </summary>
+public class TreeLevelToWidthConverter : IValueConverter
+{
+    private const double IndentSize = 20.0;
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is int level)
+        {
+            return level * IndentSize;
+        }
+        return 0.0;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Converts boolean to inverted Visibility (true = Collapsed, false = Visible)
+/// Supports "Inverse" parameter for opposite behavior
+/// </summary>
+public class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool boolValue = value is bool b && b;
+        bool inverse = parameter is string s && s == "Inverse";
+        
+        if (inverse)
+            boolValue = !boolValue;
+            
+        return boolValue ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}

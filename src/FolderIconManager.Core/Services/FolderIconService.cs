@@ -97,11 +97,13 @@ public class FolderIconService
 
                 // Extract the icon
                 var localIconPath = folder.SuggestedLocalIconPath;
-                _log.Info($"Extracting: {folder.CurrentIconResource.ExpandedFilePath}");
+                var resolvedSourcePath = folder.ResolvedIconPath!;
+                _log.Info($"Extracting from: {resolvedSourcePath}");
+                _log.Debug($"  Original reference: {folder.CurrentIconResource.FilePath}");
                 _log.Debug($"  Index: {folder.CurrentIconResource.Index}");
                 _log.Debug($"  Target: {localIconPath}");
                 
-                ExtractIcon(folder.CurrentIconResource, localIconPath);
+                ExtractIconFromPath(resolvedSourcePath, folder.CurrentIconResource.Index, localIconPath);
                 _log.Debug($"  Icon extracted ({new FileInfo(localIconPath).Length:N0} bytes)");
 
                 // Update desktop.ini
@@ -149,8 +151,14 @@ public class FolderIconService
     public void ExtractIcon(IconResource resource, string outputPath)
     {
         var sourcePath = resource.ExpandedFilePath;
-        var index = resource.Index;
+        ExtractIconFromPath(sourcePath, resource.Index, outputPath);
+    }
 
+    /// <summary>
+    /// Extracts an icon from a fully resolved file path
+    /// </summary>
+    public void ExtractIconFromPath(string sourcePath, int index, string outputPath)
+    {
         // Handle negative indices (resource IDs) - convert to zero-based ordinal
         // For now, we treat negative as absolute value for ordinal lookup
         if (index < 0)

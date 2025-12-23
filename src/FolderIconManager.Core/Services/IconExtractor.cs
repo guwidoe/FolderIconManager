@@ -30,6 +30,7 @@ public class IconExtractor : IDisposable
         }
 
         // Load the PE file as a data file
+        // First try with both flags, then just DATAFILE if that fails
         _hModule = NativeMethods.LoadLibraryEx(
             _filePath,
             IntPtr.Zero,
@@ -37,8 +38,17 @@ public class IconExtractor : IDisposable
 
         if (_hModule == IntPtr.Zero)
         {
+            // Try with just LOAD_LIBRARY_AS_DATAFILE
+            _hModule = NativeMethods.LoadLibraryEx(
+                _filePath,
+                IntPtr.Zero,
+                NativeMethods.LOAD_LIBRARY_AS_DATAFILE);
+        }
+
+        if (_hModule == IntPtr.Zero)
+        {
             var error = Marshal.GetLastWin32Error();
-            throw new InvalidOperationException($"Failed to load file as resource library: {_filePath} (Error: {error})");
+            throw new InvalidOperationException($"Failed to load file as resource library: {_filePath} (Win32 Error: {error})");
         }
 
         // Enumerate icon group resources
@@ -89,20 +99,39 @@ public class IconExtractor : IDisposable
 
     private void EnumerateIconGroups()
     {
-        NativeMethods.EnumResourceNames(
+        // Keep a reference to the delegate to prevent GC
+        NativeMethods.EnumResNameDelegate callback = (hModule, lpType, lpName, lParam) =>
+        {
+            // lpName can be an integer ID or a string name
+            // We only support integer IDs for simplicity
+            if (IsIntResource(lpName))
+            {
+                _iconIds.Add((int)lpName);
+            }
+            return true;
+        };
+        
+        var result = NativeMethods.EnumResourceNames(
             _hModule,
             NativeMethods.RT_GROUP_ICON,
-            (hModule, lpType, lpName, lParam) =>
-            {
-                // lpName can be an integer ID or a string name
-                // We only support integer IDs for simplicity
-                if (IsIntResource(lpName))
-                {
-                    _iconIds.Add((int)lpName);
-                }
-                return true;
-            },
+            callback,
             IntPtr.Zero);
+        
+        // EnumResourceNames returns false if the resource type doesn't exist (ERROR_RESOURCE_TYPE_NOT_FOUND = 1813)
+        // This is not necessarily an error - the file just has no icons
+        if (!result)
+        {
+            var error = Marshal.GetLastWin32Error();
+            // 1813 = ERROR_RESOURCE_TYPE_NOT_FOUND - no icons in file
+            // 0 = success (enumeration completed, possibly with no items)
+            if (error != 0 && error != 1813)
+            {
+                throw new InvalidOperationException($"Failed to enumerate icon resources (Win32 Error: {error})");
+            }
+        }
+        
+        // Keep the callback alive until we're done
+        GC.KeepAlive(callback);
     }
 
     private static bool IsIntResource(IntPtr value) => ((long)value >> 16) == 0;

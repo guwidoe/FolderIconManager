@@ -80,14 +80,14 @@ internal static partial class NativeMethods
 
     #region Shell32 - Icon Resource Loading
 
-    [LibraryImport("kernel32.dll", EntryPoint = "LoadLibraryExW", StringMarshalling = StringMarshalling.Utf16)]
+    [LibraryImport("kernel32.dll", EntryPoint = "LoadLibraryExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     public static partial IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
 
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool FreeLibrary(IntPtr hModule);
 
-    [LibraryImport("kernel32.dll", EntryPoint = "EnumResourceNamesW", StringMarshalling = StringMarshalling.Utf16)]
+    [LibraryImport("kernel32.dll", EntryPoint = "EnumResourceNamesW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool EnumResourceNames(
         IntPtr hModule,

@@ -31,25 +31,53 @@ public class FolderIconInfo
     public bool HasLocalIcon => !string.IsNullOrEmpty(LocalIconPath) && File.Exists(LocalIconPath);
 
     /// <summary>
+    /// Gets the fully resolved path to the icon source, taking into account relative paths
+    /// </summary>
+    public string? ResolvedIconPath
+    {
+        get
+        {
+            if (CurrentIconResource == null)
+                return null;
+
+            var iconPath = CurrentIconResource.ExpandedFilePath;
+
+            // If it's a relative path, resolve it against the folder containing desktop.ini
+            if (!Path.IsPathRooted(iconPath))
+            {
+                iconPath = Path.GetFullPath(Path.Combine(FolderPath, iconPath));
+            }
+
+            return iconPath;
+        }
+    }
+
+    /// <summary>
     /// Whether the current icon source is already local (in the same folder)
     /// </summary>
     public bool IsAlreadyLocal
     {
         get
         {
-            if (CurrentIconResource == null)
+            if (CurrentIconResource == null || ResolvedIconPath == null)
                 return false;
 
-            var expandedPath = CurrentIconResource.ExpandedFilePath;
-            var iconDir = Path.GetDirectoryName(expandedPath);
+            var iconDir = Path.GetDirectoryName(ResolvedIconPath);
             return string.Equals(iconDir, FolderPath, StringComparison.OrdinalIgnoreCase);
         }
     }
 
     /// <summary>
-    /// Whether the icon source file exists
+    /// Whether the icon source file exists (with proper relative path resolution)
     /// </summary>
-    public bool SourceExists => CurrentIconResource?.SourceExists ?? false;
+    public bool SourceExists
+    {
+        get
+        {
+            var resolved = ResolvedIconPath;
+            return resolved != null && File.Exists(resolved);
+        }
+    }
 
     /// <summary>
     /// Status of this folder's icon configuration
@@ -61,7 +89,7 @@ public class FolderIconInfo
             if (CurrentIconResource == null)
                 return FolderIconStatus.NoIcon;
             
-            if (IsAlreadyLocal && HasLocalIcon)
+            if (IsAlreadyLocal && SourceExists)
                 return FolderIconStatus.LocalAndValid;
             
             if (IsAlreadyLocal)
@@ -110,4 +138,3 @@ public enum FolderIconStatus
     /// <summary>Icon points to external file that doesn't exist</summary>
     ExternalAndBroken
 }
-

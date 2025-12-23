@@ -2,7 +2,24 @@
 
 A Windows utility to manage and persist custom folder icons. Extracts icons from resource files (DLL, EXE) and installs them locally alongside folders, making custom icons portable and resilient to source file changes.
 
-![Screenshot placeholder - run the GUI to see the interface]
+[![Build](https://github.com/guwidoe/FolderIconManager/actions/workflows/build.yml/badge.svg)](https://github.com/guwidoe/FolderIconManager/actions/workflows/build.yml)
+
+## Download
+
+**[📥 Download Latest Release](https://github.com/guwidoe/FolderIconManager/releases/latest)**
+
+| Download | Description |
+|----------|-------------|
+| `FolderIconManager-GUI-win-x64.zip` | GUI application (recommended) |
+| `FolderIconManager-CLI-win-x64.zip` | Command-line interface |
+| `FolderIconManager-win-x64.zip` | Both GUI and CLI |
+
+### Quick Start
+1. Download `FolderIconManager-GUI-win-x64.zip`
+2. Extract to any folder
+3. Run `FolderIconManager.GUI.exe`
+
+No installation required — self-contained, portable executables.
 
 ## The Problem
 
@@ -19,30 +36,6 @@ This tool:
 
 The result: self-contained folder icons that survive source file changes.
 
-## Installation
-
-### Prerequisites
-- Windows 10/11
-- .NET 8.0 Runtime (or use the self-contained build)
-
-### Build from Source
-
-```powershell
-git clone https://github.com/yourusername/FolderIconManager.git
-cd FolderIconManager
-dotnet build
-```
-
-### Publish Self-Contained Executables
-
-```powershell
-# GUI application (recommended)
-dotnet publish src/FolderIconManager.GUI -c Release -r win-x64 --self-contained
-
-# Command-line interface
-dotnet publish src/FolderIconManager.CLI -c Release -r win-x64 --self-contained
-```
-
 ## GUI Application
 
 The easiest way to use this tool is through the graphical interface:
@@ -50,14 +43,16 @@ The easiest way to use this tool is through the graphical interface:
 1. Run `FolderIconManager.GUI.exe`
 2. Click **Browse** to select a folder to scan
 3. Click **Scan** to find all folders with custom icons
-4. Review the list - icons are color-coded by status:
-   - 🟢 **Local** - Already using a local icon file
-   - 🟠 **External** - Using icon from DLL/EXE (can be fixed)
-   - 🔴 **Broken** - Icon source file is missing
+4. Review the list — icons are color-coded by status:
+   - 🟢 **Local** — Already using a local icon file
+   - 🟠 **External** — Using icon from DLL/EXE (can be fixed)
+   - 🔴 **Broken** — Icon source file is missing
 5. Click **Fix All External** to extract and localize all external icons
 6. Watch the log panel for detailed progress
 
-## Usage
+## CLI Usage
+
+The command-line tool is called `fim` (Folder Icon Manager).
 
 ### Scan for Folder Icons
 
@@ -147,10 +142,40 @@ This ensures icons look crisp at any DPI and in any view mode.
 
 ## Supported Source Formats
 
-- `.exe` - Windows executables
-- `.dll` - Dynamic link libraries
-- `.ico` - Icon files (copied directly)
+- `.exe` — Windows executables
+- `.dll` — Dynamic link libraries
+- `.ico` — Icon files (copied directly)
 - Any PE file with icon resources
+
+## Building from Source
+
+### Prerequisites
+- Windows 10/11
+- .NET 8.0 SDK
+
+### Build
+
+```powershell
+git clone https://github.com/guwidoe/FolderIconManager.git
+cd FolderIconManager
+dotnet build
+```
+
+### Publish Self-Contained Executables
+
+```powershell
+# GUI application
+dotnet publish src/FolderIconManager.GUI -c Release
+
+# Command-line interface  
+dotnet publish src/FolderIconManager.CLI -c Release
+```
+
+### Run Tests
+
+```powershell
+dotnet test
+```
 
 ## Project Structure
 
@@ -160,12 +185,21 @@ src/
 │   ├── Models/                 # Data models
 │   ├── Native/                 # Windows API P/Invoke
 │   └── Services/               # Business logic
-└── FolderIconManager.CLI/      # Command-line interface
+├── FolderIconManager.CLI/      # Command-line interface
+└── FolderIconManager.GUI/      # WPF desktop application
+tests/
+└── FolderIconManager.Tests/    # Unit tests
 ```
+
+## Requirements
+
+- Windows 10/11 (x64)
+- No .NET runtime required for release downloads (self-contained)
+- .NET 8.0 SDK required only for building from source
 
 ## License
 
-MIT License - see [LICENSE.txt](LICENSE.txt)
+MIT License — see [LICENSE.txt](LICENSE.txt)
 
 ## Contributing
 
@@ -174,4 +208,3 @@ Contributions welcome! Please open an issue or PR.
 ## Acknowledgments
 
 - Icon extraction approach inspired by [TsudaKageyu/IconExtractor](https://github.com/TsudaKageyu/IconExtractor)
-

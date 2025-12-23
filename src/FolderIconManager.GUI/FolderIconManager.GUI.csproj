@@ -8,6 +8,15 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>FolderIconManager.GUI</RootNamespace>
     
+    <!-- App metadata -->
+    <Version>1.0.0</Version>
+    <AssemblyTitle>Folder Icon Manager</AssemblyTitle>
+    <Product>Folder Icon Manager</Product>
+    <Description>Windows utility to manage and persist custom folder icons</Description>
+    <Company>Folder Icon Manager</Company>
+    <Copyright>Copyright © 2025</Copyright>
+    <ApplicationIcon></ApplicationIcon>
+    
     <!-- Single file publish settings -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

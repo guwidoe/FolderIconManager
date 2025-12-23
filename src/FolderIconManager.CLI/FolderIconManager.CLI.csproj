@@ -7,6 +7,15 @@
     <Nullable>enable</Nullable>
     <RootNamespace>FolderIconManager.CLI</RootNamespace>
     <LangVersion>latest</LangVersion>
+    <AssemblyName>fim</AssemblyName>
+    
+    <!-- App metadata -->
+    <Version>1.0.0</Version>
+    <AssemblyTitle>Folder Icon Manager CLI</AssemblyTitle>
+    <Product>Folder Icon Manager</Product>
+    <Description>Command-line interface for Folder Icon Manager</Description>
+    <Company>Folder Icon Manager</Company>
+    <Copyright>Copyright © 2025</Copyright>
     
     <!-- Single file publish settings -->
     <PublishSingleFile>true</PublishSingleFile>

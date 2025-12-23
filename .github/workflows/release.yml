@@ -1,0 +1,117 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Publish GUI (self-contained)
+      run: |
+        dotnet publish src/FolderIconManager.GUI/FolderIconManager.GUI.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish/gui
+
+    - name: Publish CLI (self-contained)
+      run: |
+        dotnet publish src/FolderIconManager.CLI/FolderIconManager.CLI.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish/cli
+
+    - name: Create release archives
+      run: |
+        # Create output directory
+        New-Item -ItemType Directory -Force -Path ./release
+        
+        # Create GUI zip
+        Compress-Archive -Path ./publish/gui/FolderIconManager.GUI.exe -DestinationPath ./release/FolderIconManager-GUI-win-x64.zip
+        
+        # Create CLI zip
+        Compress-Archive -Path ./publish/cli/fim.exe -DestinationPath ./release/FolderIconManager-CLI-win-x64.zip
+        
+        # Create combined zip with both executables
+        New-Item -ItemType Directory -Force -Path ./publish/combined
+        Copy-Item ./publish/gui/FolderIconManager.GUI.exe ./publish/combined/
+        Copy-Item ./publish/cli/fim.exe ./publish/combined/
+        Compress-Archive -Path ./publish/combined/* -DestinationPath ./release/FolderIconManager-win-x64.zip
+
+    - name: Get version
+      id: version
+      run: |
+        if ("${{ github.event.inputs.version }}" -ne "") {
+          $version = "${{ github.event.inputs.version }}"
+        } else {
+          $version = "${{ github.ref_name }}"
+        }
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: Folder Icon Manager ${{ steps.version.outputs.VERSION }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        files: |
+          ./release/FolderIconManager-GUI-win-x64.zip
+          ./release/FolderIconManager-CLI-win-x64.zip
+          ./release/FolderIconManager-win-x64.zip
+        body: |
+          ## Downloads
+          
+          | File | Description |
+          |------|-------------|
+          | `FolderIconManager-GUI-win-x64.zip` | GUI application (recommended for most users) |
+          | `FolderIconManager-CLI-win-x64.zip` | Command-line interface |
+          | `FolderIconManager-win-x64.zip` | Both GUI and CLI |
+          
+          ### Installation
+          1. Download the appropriate zip file
+          2. Extract to a folder of your choice
+          3. Run `FolderIconManager.GUI.exe` (GUI) or `fim.exe` (CLI)
+          
+          No installation required - these are portable, self-contained executables.
+          
+          ### Requirements
+          - Windows 10/11 (x64)
+          - No .NET runtime required (self-contained)
+

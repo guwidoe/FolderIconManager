@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using FolderIconManager.GUI.Models;
 
 namespace FolderIconManager.GUI;
@@ -79,6 +80,11 @@ public partial class MainWindow : Window
     {
         if (sender is TreeViewItem item && item.DataContext is FolderTreeNode node)
         {
+            // Check if the click is directly on this item's content, not on a child TreeViewItem
+            // This prevents the tunneling event from selecting parent items
+            if (!IsClickOnThisItem(item, e))
+                return;
+
             // If right-clicking on a multi-selected node, keep the selection
             if (!node.IsMultiSelected)
             {
@@ -88,6 +94,32 @@ public partial class MainWindow : Window
             item.Focus();
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// Checks if the click event is directly on this TreeViewItem's header, not on a child item
+    /// </summary>
+    private bool IsClickOnThisItem(TreeViewItem item, MouseButtonEventArgs e)
+    {
+        // Get the element that was actually clicked
+        var clickedElement = e.OriginalSource as DependencyObject;
+        if (clickedElement == null) return false;
+
+        // Walk up the visual tree from the clicked element
+        // If we hit this TreeViewItem before hitting another TreeViewItem, the click is on this item
+        while (clickedElement != null)
+        {
+            if (clickedElement == item)
+                return true;
+
+            // If we find a different TreeViewItem first, this click is for a child item
+            if (clickedElement is TreeViewItem && clickedElement != item)
+                return false;
+
+            clickedElement = VisualTreeHelper.GetParent(clickedElement);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -112,5 +144,25 @@ public partial class MainWindow : Window
         }
         _viewModel.SelectedNodes.Clear();
         _viewModel.OnMultiSelectionChanged();
+    }
+
+    /// <summary>
+    /// Opens the column visibility context menu
+    /// </summary>
+    private void ColumnSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.ContextMenu != null)
+        {
+            button.ContextMenu.PlacementTarget = button;
+            button.ContextMenu.IsOpen = true;
+        }
+    }
+
+    /// <summary>
+    /// Resets all columns to their default widths and visibility
+    /// </summary>
+    private void ResetColumns_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.ColumnWidths.ResetToDefaults();
     }
 }

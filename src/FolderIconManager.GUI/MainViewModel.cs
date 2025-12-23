@@ -31,6 +31,7 @@ public class MainViewModel : INotifyPropertyChanged
     private FilterMode _filterMode = FilterMode.All;
     private List<FolderTreeNode> _allNodes = [];
     private HashSet<FolderTreeNode> _selectedNodes = [];
+    private ColumnSettings _columnWidths = new();
 
     public MainViewModel()
     {
@@ -157,6 +158,8 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public HashSet<FolderTreeNode> SelectedNodes => _selectedNodes;
+
+    public ColumnSettings ColumnWidths => _columnWidths;
 
     public int SelectedCount => _selectedNodes.Count;
 

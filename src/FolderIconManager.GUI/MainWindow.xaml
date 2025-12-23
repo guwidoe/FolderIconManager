@@ -218,127 +218,234 @@
             </Grid>
         </Border>
 
-        <!-- Tree View -->
+        <!-- Tree View with Column Headers -->
         <Border Grid.Row="2" Background="{StaticResource BackgroundMediumBrush}" 
                 CornerRadius="6" Margin="0,0,0,8">
-            <TreeView ItemsSource="{Binding RootNodes}"
-                      Background="Transparent"
-                      BorderThickness="0"
-                      Padding="4"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling"
-                      SelectedItemChanged="TreeView_SelectedItemChanged">
-                
-                <TreeView.ItemContainerStyle>
-                    <Style TargetType="TreeViewItem">
-                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
-                        <Setter Property="Visibility" Value="{Binding Visibility}"/>
-                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                        <Setter Property="Padding" Value="2"/>
-                        <Setter Property="Margin" Value="0,1"/>
-                        <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeViewItem_PreviewMouseLeftButtonDown"/>
-                        <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{StaticResource AccentBlueBrush}"/>
-                            </Trigger>
-                            <DataTrigger Binding="{Binding IsMultiSelected}" Value="True">
-                                <Setter Property="Background" Value="#3060A0"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TreeView.ItemContainerStyle>
-                
-                <TreeView.ItemTemplate>
-                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                        <Grid Margin="2,3">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="24"/>
-                                <ColumnDefinition Width="Auto" MinWidth="120" MaxWidth="250"/>
-                                <ColumnDefinition Width="70"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="30"/>
-                            </Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
 
-                            <!-- Icon Thumbnail -->
-                            <Image Grid.Column="0" 
-                                   Source="{Binding IconImage}" 
-                                   Width="20" Height="20"
-                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                <!-- Column Headers -->
+                <Border Grid.Row="0" Background="{StaticResource BackgroundDarkBrush}" 
+                        CornerRadius="6,6,0,0" BorderBrush="{StaticResource BorderBrush}" 
+                        BorderThickness="0,0,0,1">
+                    <Grid x:Name="HeaderGrid" Margin="22,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <!-- Name column - expander takes ~20px, so we offset the header grid -->
+                            <ColumnDefinition Width="{Binding ColumnWidths.NameWidth, Mode=TwoWay}" MinWidth="100"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- Status column -->
+                            <ColumnDefinition Width="{Binding ColumnWidths.StatusWidth, Mode=TwoWay}" MinWidth="60"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- Source column -->
+                            <ColumnDefinition Width="{Binding ColumnWidths.SourceWidth, Mode=TwoWay}" MinWidth="100"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- Backup column -->
+                            <ColumnDefinition Width="{Binding ColumnWidths.BackupWidth, Mode=TwoWay}" MinWidth="40"/>
+                        </Grid.ColumnDefinitions>
 
-                            <!-- Folder Name -->
-                            <TextBlock Grid.Column="1" 
-                                       Text="{Binding Name}" 
-                                       VerticalAlignment="Center"
-                                       Margin="6,0,12,0"
-                                       TextTrimming="CharacterEllipsis"/>
+                        <!-- Name Header -->
+                        <Border Grid.Column="0" Padding="8,8" 
+                                Visibility="{Binding ColumnWidths.NameVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Name" FontWeight="SemiBold" 
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+                        <GridSplitter Grid.Column="1" Width="4" Background="Transparent" 
+                                      Cursor="SizeWE" HorizontalAlignment="Center"
+                                      Visibility="{Binding ColumnWidths.NameVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                            <!-- Status -->
-                            <Border Grid.Column="2" 
-                                    Background="{StaticResource BackgroundLightBrush}"
-                                    CornerRadius="3"
-                                    Padding="6,2"
-                                    VerticalAlignment="Center"
-                                    Margin="0,0,8,0"
-                                    Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <TextBlock Text="{Binding StatusText}" 
-                                           Foreground="{Binding StatusBrush}"
+                        <!-- Status Header -->
+                        <Border Grid.Column="2" Padding="8,8"
+                                Visibility="{Binding ColumnWidths.StatusVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Status" FontWeight="SemiBold" 
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+                        <GridSplitter Grid.Column="3" Width="4" Background="Transparent" 
+                                      Cursor="SizeWE" HorizontalAlignment="Center"
+                                      Visibility="{Binding ColumnWidths.StatusVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                        <!-- Source Header -->
+                        <Border Grid.Column="4" Padding="8,8"
+                                Visibility="{Binding ColumnWidths.SourceVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Icon Source" FontWeight="SemiBold" 
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+                        <GridSplitter Grid.Column="5" Width="4" Background="Transparent" 
+                                      Cursor="SizeWE" HorizontalAlignment="Center"
+                                      Visibility="{Binding ColumnWidths.SourceVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                        <!-- Backup Header -->
+                        <Border Grid.Column="6" Padding="8,8"
+                                Visibility="{Binding ColumnWidths.BackupVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Backup" FontWeight="SemiBold" 
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </Border>
+
+                        <!-- Column Toggle Button -->
+                        <Border Grid.Column="6" HorizontalAlignment="Right" Padding="0,4,8,4"
+                                Visibility="{Binding ColumnWidths.BackupVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Button Content="⚙" FontSize="10" Padding="4,2" Cursor="Hand"
+                                    Background="Transparent" BorderThickness="0"
+                                    Foreground="{StaticResource TextSecondaryBrush}"
+                                    ToolTip="Column visibility settings"
+                                    Click="ColumnSettings_Click">
+                                <Button.ContextMenu>
+                                    <ContextMenu x:Name="ColumnContextMenu">
+                                        <MenuItem Header="Name" IsCheckable="True" 
+                                                  IsChecked="{Binding ColumnWidths.NameVisible, Mode=TwoWay}"/>
+                                        <MenuItem Header="Status" IsCheckable="True" 
+                                                  IsChecked="{Binding ColumnWidths.StatusVisible, Mode=TwoWay}"/>
+                                        <MenuItem Header="Icon Source" IsCheckable="True" 
+                                                  IsChecked="{Binding ColumnWidths.SourceVisible, Mode=TwoWay}"/>
+                                        <MenuItem Header="Backup" IsCheckable="True" 
+                                                  IsChecked="{Binding ColumnWidths.BackupVisible, Mode=TwoWay}"/>
+                                        <Separator/>
+                                        <MenuItem Header="Reset Columns" Click="ResetColumns_Click"/>
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Tree View Content -->
+                <TreeView x:Name="FolderTreeView" Grid.Row="1" 
+                          ItemsSource="{Binding RootNodes}"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          Padding="4"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          SelectedItemChanged="TreeView_SelectedItemChanged">
+                    
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                            <Setter Property="Visibility" Value="{Binding Visibility}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            <Setter Property="Padding" Value="2"/>
+                            <Setter Property="Margin" Value="0,1"/>
+                            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeViewItem_PreviewMouseLeftButtonDown"/>
+                            <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource AccentBlueBrush}"/>
+                                </Trigger>
+                                <DataTrigger Binding="{Binding IsMultiSelected}" Value="True">
+                                    <Setter Property="Background" Value="#3060A0"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                    
+                    <TreeView.ItemTemplate>
+                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                            <Grid Margin="2,3">
+                                <Grid.ColumnDefinitions>
+                                    <!-- Name column - sync with header -->
+                                    <ColumnDefinition Width="{Binding DataContext.ColumnWidths.NameWidth, RelativeSource={RelativeSource AncestorType=TreeView}}"/>
+                                    <!-- Status column -->
+                                    <ColumnDefinition Width="{Binding DataContext.ColumnWidths.StatusWidth, RelativeSource={RelativeSource AncestorType=TreeView}}"/>
+                                    <!-- Source column -->
+                                    <ColumnDefinition Width="{Binding DataContext.ColumnWidths.SourceWidth, RelativeSource={RelativeSource AncestorType=TreeView}}"/>
+                                    <!-- Backup column -->
+                                    <ColumnDefinition Width="{Binding DataContext.ColumnWidths.BackupWidth, RelativeSource={RelativeSource AncestorType=TreeView}}"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Name: Icon + Text -->
+                                <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                            Visibility="{Binding DataContext.ColumnWidths.NameVisible, RelativeSource={RelativeSource AncestorType=TreeView}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <Image Source="{Binding IconImage}" 
+                                           Width="20" Height="20"
+                                           RenderOptions.BitmapScalingMode="HighQuality"
+                                           Margin="0,0,6,0"/>
+                                    <TextBlock Text="{Binding Name}" 
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <!-- Status -->
+                                <Border Grid.Column="1" 
+                                        Background="{StaticResource BackgroundLightBrush}"
+                                        CornerRadius="3"
+                                        Padding="6,2"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Left"
+                                        Margin="4,0,8,0"
+                                        Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding DataContext.ColumnWidths.StatusVisible, RelativeSource={RelativeSource AncestorType=TreeView}}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="{Binding StatusText}" 
+                                               Foreground="{Binding StatusBrush}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                </Border>
+
+                                <!-- Icon Source Path -->
+                                <TextBlock Grid.Column="2" 
+                                           Text="{Binding SourceDescription}" 
+                                           Foreground="{StaticResource TextTertiaryBrush}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Margin="4,0,8,0"
                                            FontSize="11"
-                                           FontWeight="SemiBold"/>
-                            </Border>
+                                           FontFamily="Cascadia Code, Consolas, Courier New"
+                                           ToolTip="{Binding SourceDescription}"
+                                           Visibility="{Binding DataContext.ColumnWidths.SourceVisible, RelativeSource={RelativeSource AncestorType=TreeView}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                            <!-- Icon Source Path -->
-                            <TextBlock Grid.Column="3" 
-                                       Text="{Binding SourceDescription}" 
-                                       Foreground="{StaticResource TextTertiaryBrush}"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"
-                                       Margin="0,0,8,0"
-                                       FontSize="11"
-                                       FontFamily="Cascadia Code, Consolas, Courier New"
-                                       ToolTip="{Binding SourceDescription}"/>
+                                <!-- Backup Indicator -->
+                                <TextBlock Grid.Column="3" 
+                                           Text="{Binding BackupIndicator}" 
+                                           Foreground="{StaticResource AccentGreenBrush}"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Center"
+                                           FontSize="14"
+                                           ToolTip="{Binding BackupTooltip}"
+                                           Visibility="{Binding DataContext.ColumnWidths.BackupVisible, RelativeSource={RelativeSource AncestorType=TreeView}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </Grid>
+                        </HierarchicalDataTemplate>
+                    </TreeView.ItemTemplate>
 
-                            <!-- Backup Indicator -->
-                            <TextBlock Grid.Column="4" 
-                                       Text="{Binding BackupIndicator}" 
-                                       Foreground="{StaticResource AccentGreenBrush}"
-                                       VerticalAlignment="Center"
-                                       HorizontalAlignment="Center"
-                                       FontSize="14"
-                                       ToolTip="{Binding BackupTooltip}"/>
-                        </Grid>
-                    </HierarchicalDataTemplate>
-                </TreeView.ItemTemplate>
-
-                <!-- Context Menu - uses PlacementTarget to bind to main window's DataContext -->
-                <TreeView.ContextMenu>
-                    <ContextMenu Background="{StaticResource BackgroundMediumBrush}"
-                                 DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                        <MenuItem Header="🖼️ Set Icon..." 
-                                  Command="{Binding SetIconCommand}"
-                                  InputGestureText="Ctrl+I"/>
-                        <Separator/>
-                        <MenuItem Header="📥 Make Local (Extract)" 
-                                  Command="{Binding MakeLocalCommand}"/>
-                        <Separator/>
-                        <MenuItem Header="↩️ Restore Original" 
-                                  Command="{Binding RestoreCommand}"/>
-                        <MenuItem Header="🔄 Update from Source" 
-                                  Command="{Binding UpdateFromSourceCommand}"/>
-                        <Separator/>
-                        <MenuItem Header="🗑️ Remove Icon" 
-                                  Command="{Binding RemoveIconCommand}"/>
-                        <Separator/>
-                        <MenuItem Header="📂 Open in Explorer" 
-                                  Command="{Binding OpenInExplorerCommand}"
-                                  InputGestureText="Ctrl+E"/>
-                        <MenuItem Header="📋 Copy Path" 
-                                  Command="{Binding CopyPathCommand}"
-                                  InputGestureText="Ctrl+C"/>
-                    </ContextMenu>
-                </TreeView.ContextMenu>
-            </TreeView>
+                    <!-- Context Menu -->
+                    <TreeView.ContextMenu>
+                        <ContextMenu Background="{StaticResource BackgroundMediumBrush}"
+                                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="🖼️ Set Icon..." 
+                                      Command="{Binding SetIconCommand}"
+                                      InputGestureText="Ctrl+I"/>
+                            <Separator/>
+                            <MenuItem Header="📥 Make Local (Extract)" 
+                                      Command="{Binding MakeLocalCommand}"/>
+                            <Separator/>
+                            <MenuItem Header="↩️ Restore Original" 
+                                      Command="{Binding RestoreCommand}"/>
+                            <MenuItem Header="🔄 Update from Source" 
+                                      Command="{Binding UpdateFromSourceCommand}"/>
+                            <Separator/>
+                            <MenuItem Header="🗑️ Remove Icon" 
+                                      Command="{Binding RemoveIconCommand}"/>
+                            <Separator/>
+                            <MenuItem Header="📂 Open in Explorer" 
+                                      Command="{Binding OpenInExplorerCommand}"
+                                      InputGestureText="Ctrl+E"/>
+                            <MenuItem Header="📋 Copy Path" 
+                                      Command="{Binding CopyPathCommand}"
+                                      InputGestureText="Ctrl+C"/>
+                        </ContextMenu>
+                    </TreeView.ContextMenu>
+                </TreeView>
+            </Grid>
         </Border>
 
         <!-- Splitter -->

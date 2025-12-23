@@ -6,7 +6,8 @@
         MinHeight="500" MinWidth="700"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Loaded="Window_Loaded">
     
     <Grid Margin="12">
         <Grid.RowDefinitions>

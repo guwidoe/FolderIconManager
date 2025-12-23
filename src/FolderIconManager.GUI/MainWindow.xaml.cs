@@ -22,6 +22,23 @@ public partial class MainWindow : Window
     {
         // Restore window state
         _viewModel?.RestoreWindowState(this);
+        
+        // Apply title bar theme based on current theme
+        ApplyTitleBarTheme();
+        
+        // Subscribe to theme changes
+        if (_viewModel?.ThemeService != null)
+        {
+            _viewModel.ThemeService.ThemeChanged += () => ApplyTitleBarTheme();
+        }
+    }
+
+    private void ApplyTitleBarTheme()
+    {
+        if (_viewModel?.ThemeService != null)
+        {
+            _viewModel.ThemeService.ApplyTitleBarTheme(this);
+        }
     }
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)

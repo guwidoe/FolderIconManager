@@ -34,6 +34,12 @@ public partial class SettingsDialog : Window
         LoadSettings();
     }
 
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        // Apply title bar theme
+        _themeService.ApplyTitleBarTheme(this);
+    }
+
     private void LoadSettings()
     {
         var settings = _userData.Settings;

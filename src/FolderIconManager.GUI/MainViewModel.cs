@@ -227,6 +227,7 @@ public class MainViewModel : INotifyPropertyChanged
     public IconCacheService IconCache => _iconCache;
     public UserDataService UserData => _userData;
     public FolderIconService Service => _service;
+    public ThemeService ThemeService => _themeService;
 
     #endregion
 

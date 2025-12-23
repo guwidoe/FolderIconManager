@@ -7,7 +7,8 @@
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        ResizeMode="NoResize">
+        ResizeMode="NoResize"
+        Loaded="Window_Loaded">
     
     <Grid Margin="16">
         <Grid.RowDefinitions>

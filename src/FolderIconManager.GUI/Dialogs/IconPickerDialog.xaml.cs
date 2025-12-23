@@ -48,6 +48,13 @@ public partial class IconPickerDialog : Window
         LoadRecentIcons();
     }
 
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        // Apply title bar theme based on current theme setting
+        var themeService = new ThemeService();
+        themeService.ApplyTitleBarTheme(this);
+    }
+
     #region Properties
 
     public string? SelectedIconPath { get; private set; }

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
+using FolderIconManager.GUI.Helpers;
 using Microsoft.Win32;
 
 namespace FolderIconManager.GUI.Services;
@@ -10,6 +11,8 @@ namespace FolderIconManager.GUI.Services;
 /// </summary>
 public class ThemeService
 {
+    private AppTheme _currentTheme = AppTheme.System;
+
     public event Action? ThemeChanged;
 
     public ThemeService()
@@ -19,8 +22,15 @@ public class ThemeService
         {
             if (e.Category == UserPreferenceCategory.General)
             {
-                // System theme may have changed
-                ThemeChanged?.Invoke();
+                // System theme may have changed - reapply current theme to update if it's set to System
+                if (_currentTheme == AppTheme.System)
+                {
+                    ApplyTheme(_currentTheme);
+                }
+                else
+                {
+                    ThemeChanged?.Invoke();
+                }
             }
         };
     }
@@ -50,6 +60,8 @@ public class ThemeService
     /// </summary>
     public void ApplyTheme(AppTheme theme)
     {
+        _currentTheme = theme;
+        
         bool useDark = theme switch
         {
             AppTheme.Dark => true,
@@ -69,7 +81,36 @@ public class ThemeService
             ApplyLightTheme(resources);
         }
 
+        // Apply title bar theme to all open windows
+        ApplyTitleBarThemeToAllWindows(useDark);
+
         ThemeChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Applies title bar theme to a specific window
+    /// </summary>
+    public void ApplyTitleBarTheme(Window window)
+    {
+        if (window == null) return;
+        
+        bool useDark = _currentTheme switch
+        {
+            AppTheme.Dark => true,
+            AppTheme.Light => false,
+            AppTheme.System => IsSystemDarkMode,
+            _ => true
+        };
+        
+        WindowTitleBarHelper.SetTitleBarTheme(window, useDark);
+    }
+
+    private void ApplyTitleBarThemeToAllWindows(bool useDark)
+    {
+        foreach (Window window in Application.Current.Windows)
+        {
+            WindowTitleBarHelper.SetTitleBarTheme(window, useDark);
+        }
     }
 
     private void ApplyDarkTheme(ResourceDictionary resources)

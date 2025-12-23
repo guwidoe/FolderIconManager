@@ -54,9 +54,24 @@ internal static partial class NativeMethods
     public static partial uint ExtractIconEx(
         string lpszFile,
         int nIconIndex,
-        IntPtr[] phiconLarge,
-        IntPtr[] phiconSmall,
+        IntPtr[]? phiconLarge,
+        IntPtr[]? phiconSmall,
         uint nIcons);
+
+    /// <summary>
+    /// PrivateExtractIcons - This is what Windows Shell uses internally.
+    /// It extracts icons by the same index that ExtractIconEx uses.
+    /// </summary>
+    [LibraryImport("user32.dll", EntryPoint = "PrivateExtractIconsW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    public static partial uint PrivateExtractIcons(
+        string szFileName,
+        int nIconIndex,
+        int cxIcon,
+        int cyIcon,
+        IntPtr[]? phicon,
+        uint[]? piconid,
+        uint nIcons,
+        uint flags);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

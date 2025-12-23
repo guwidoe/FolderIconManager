@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
 using FolderIconManager.Core.Models;
 using FolderIconManager.Core.Services;
+using FolderIconManager.GUI.Models;
+using FolderIconManager.GUI.Services;
 using Microsoft.Win32;
 
 namespace FolderIconManager.GUI;
@@ -13,34 +15,68 @@ namespace FolderIconManager.GUI;
 public class MainViewModel : INotifyPropertyChanged
 {
     private readonly FolderIconService _service;
+    private readonly IconCacheService _iconCache;
+    private readonly UserDataService _userData;
+    private readonly UndoService _undoService;
+    
     private string _folderPath = "";
     private bool _includeSubfolders = true;
-    private bool _skipExisting = true;
+    private int? _depthLimit;
     private string _statusText = "Ready";
     private bool _isScanning;
     private bool _isProcessing;
-    private FolderItemViewModel? _selectedFolder;
+    private FolderTreeNode? _selectedNode;
+    private string _filterText = "";
+    private FilterMode _filterMode = FilterMode.All;
 
     public MainViewModel()
     {
         _service = new FolderIconService();
         _service.Log.OnLog += OnLogEntry;
+        
+        _iconCache = new IconCacheService();
+        _userData = new UserDataService();
+        _undoService = new UndoService();
+        _undoService.UndoStackChanged += () => OnPropertyChanged(nameof(CanUndo));
 
-        Folders = [];
+        RootNodes = [];
         LogEntries = [];
 
+        // Load settings
+        _includeSubfolders = _userData.Settings.IncludeSubfoldersByDefault;
+        _depthLimit = _userData.Settings.ScanDepthLimit;
+        if (!string.IsNullOrEmpty(_userData.Settings.LastFolderPath))
+            _folderPath = _userData.Settings.LastFolderPath;
+
+        // Commands
         BrowseCommand = new RelayCommand(Browse);
         ScanCommand = new RelayCommand(async () => await ScanAsync(), () => CanScan);
-        FixSelectedCommand = new RelayCommand(async () => await FixSelectedAsync(), () => HasSelection && SelectedFolder?.Status == FolderIconStatus.ExternalAndValid);
-        FixAllCommand = new RelayCommand(async () => await FixAllAsync(), () => HasExternalIcons);
-        RestoreSelectedCommand = new RelayCommand(async () => await RestoreSelectedAsync(), () => HasSelection && SelectedFolder?.HasBackup == true);
-        RestoreAllCommand = new RelayCommand(async () => await RestoreAllAsync(), () => HasLocalWithBackup);
-        UpdateSelectedCommand = new RelayCommand(async () => await UpdateSelectedAsync(), () => HasSelection && SelectedFolder?.HasBackup == true);
-        UpdateAllCommand = new RelayCommand(async () => await UpdateAllAsync(), () => HasLocalWithBackup);
+        ExpandAllCommand = new RelayCommand(ExpandAll, () => RootNodes.Count > 0);
+        CollapseAllCommand = new RelayCommand(CollapseAll, () => RootNodes.Count > 0);
+        
+        // Node actions
+        SetIconCommand = new RelayCommand(async () => await SetIconAsync(), () => SelectedNode != null);
+        MakeLocalCommand = new RelayCommand(async () => await MakeLocalAsync(), () => CanMakeLocal);
+        RestoreCommand = new RelayCommand(async () => await RestoreAsync(), () => CanRestore);
+        UpdateFromSourceCommand = new RelayCommand(async () => await UpdateFromSourceAsync(), () => CanUpdateFromSource);
+        RemoveIconCommand = new RelayCommand(async () => await RemoveIconAsync(), () => SelectedNode?.HasIcon == true);
+        OpenInExplorerCommand = new RelayCommand(OpenInExplorer, () => SelectedNode != null);
+        CopyPathCommand = new RelayCommand(CopyPath, () => SelectedNode != null);
+        
+        // Undo
+        UndoCommand = new RelayCommand(async () => await UndoAsync(), () => CanUndo);
+        
+        // Log
         ClearLogCommand = new RelayCommand(ClearLog);
+        
+        // Settings
+        OpenSettingsCommand = new RelayCommand(OpenSettings);
     }
 
     #region Properties
+
+    public ObservableCollection<FolderTreeNode> RootNodes { get; }
+    public ObservableCollection<string> LogEntries { get; }
 
     public string FolderPath
     {
@@ -50,6 +86,8 @@ public class MainViewModel : INotifyPropertyChanged
             if (_folderPath != value)
             {
                 _folderPath = value;
+                _userData.Settings.LastFolderPath = value;
+                _userData.SaveSettings();
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(CanScan));
             }
@@ -62,11 +100,13 @@ public class MainViewModel : INotifyPropertyChanged
         set { _includeSubfolders = value; OnPropertyChanged(); }
     }
 
-    public bool SkipExisting
+    public int? DepthLimit
     {
-        get => _skipExisting;
-        set { _skipExisting = value; OnPropertyChanged(); }
+        get => _depthLimit;
+        set { _depthLimit = value; OnPropertyChanged(); }
     }
+
+    public List<int?> DepthLimitOptions { get; } = [null, 1, 2, 3, 5, 10];
 
     public string StatusText
     {
@@ -75,40 +115,52 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public bool CanScan => !string.IsNullOrWhiteSpace(FolderPath) && !_isScanning && !_isProcessing;
-
-    public bool HasSelection => SelectedFolder != null;
-
-    public bool HasExternalIcons => Folders.Any(f => f.Status == FolderIconStatus.ExternalAndValid);
     
-    public bool HasLocalWithBackup => Folders.Any(f => f.Status == FolderIconStatus.LocalAndValid && f.HasBackup);
+    public bool CanUndo => _undoService.CanUndo;
+
+    public FolderTreeNode? SelectedNode
+    {
+        get => _selectedNode;
+        set
+        {
+            if (_selectedNode != value)
+            {
+                _selectedNode = value;
+                OnPropertyChanged();
+                RefreshCommandStates();
+            }
+        }
+    }
+
+    public string FilterText
+    {
+        get => _filterText;
+        set { _filterText = value; OnPropertyChanged(); ApplyFilter(); }
+    }
+
+    public FilterMode FilterMode
+    {
+        get => _filterMode;
+        set { _filterMode = value; OnPropertyChanged(); ApplyFilter(); }
+    }
+
+    private bool CanMakeLocal => SelectedNode?.Status == FolderIconStatus.ExternalAndValid;
+    private bool CanRestore => SelectedNode?.HasBackup == true;
+    private bool CanUpdateFromSource => SelectedNode?.HasBackup == true && SelectedNode?.SourceChanged == true;
 
     public string SummaryText
     {
         get
         {
-            var total = Folders.Count;
-            var local = Folders.Count(f => f.Status == FolderIconStatus.LocalAndValid);
-            var external = Folders.Count(f => f.Status == FolderIconStatus.ExternalAndValid);
-            var broken = Folders.Count(f => f.Status is FolderIconStatus.ExternalAndBroken or FolderIconStatus.LocalButMissing);
-            var withBackup = Folders.Count(f => f.HasBackup);
+            var allNodes = GetAllNodes(RootNodes).ToList();
+            var withIcons = allNodes.Count(n => n.HasIcon);
+            var local = allNodes.Count(n => n.Status == FolderIconStatus.LocalAndValid);
+            var external = allNodes.Count(n => n.Status == FolderIconStatus.ExternalAndValid);
+            var broken = allNodes.Count(n => n.Status is FolderIconStatus.ExternalAndBroken or FolderIconStatus.LocalButMissing);
             
-            return $"Total: {total}  |  Local: {local}  |  External: {external}  |  Broken: {broken}  |  With Backup: {withBackup}";
+            return $"Total: {allNodes.Count}  |  With Icons: {withIcons}  |  Local: {local}  |  External: {external}  |  Broken: {broken}";
         }
     }
-
-    public FolderItemViewModel? SelectedFolder
-    {
-        get => _selectedFolder;
-        set
-        {
-            _selectedFolder = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(HasSelection));
-        }
-    }
-
-    public ObservableCollection<FolderItemViewModel> Folders { get; }
-    public ObservableCollection<string> LogEntries { get; }
 
     #endregion
 
@@ -116,13 +168,26 @@ public class MainViewModel : INotifyPropertyChanged
 
     public ICommand BrowseCommand { get; }
     public ICommand ScanCommand { get; }
-    public ICommand FixSelectedCommand { get; }
-    public ICommand FixAllCommand { get; }
-    public ICommand RestoreSelectedCommand { get; }
-    public ICommand RestoreAllCommand { get; }
-    public ICommand UpdateSelectedCommand { get; }
-    public ICommand UpdateAllCommand { get; }
+    public ICommand ExpandAllCommand { get; }
+    public ICommand CollapseAllCommand { get; }
+    public ICommand SetIconCommand { get; }
+    public ICommand MakeLocalCommand { get; }
+    public ICommand RestoreCommand { get; }
+    public ICommand UpdateFromSourceCommand { get; }
+    public ICommand RemoveIconCommand { get; }
+    public ICommand OpenInExplorerCommand { get; }
+    public ICommand CopyPathCommand { get; }
+    public ICommand UndoCommand { get; }
     public ICommand ClearLogCommand { get; }
+    public ICommand OpenSettingsCommand { get; }
+
+    #endregion
+
+    #region Services (exposed for dialogs)
+
+    public IconCacheService IconCache => _iconCache;
+    public UserDataService UserData => _userData;
+    public FolderIconService Service => _service;
 
     #endregion
 
@@ -133,7 +198,9 @@ public class MainViewModel : INotifyPropertyChanged
         var dialog = new OpenFolderDialog
         {
             Title = "Select folder to scan",
-            InitialDirectory = string.IsNullOrEmpty(FolderPath) ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : FolderPath
+            InitialDirectory = string.IsNullOrEmpty(FolderPath) 
+                ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) 
+                : FolderPath
         };
 
         if (dialog.ShowDialog() == true)
@@ -144,128 +211,258 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task ScanAsync()
     {
-        if (string.IsNullOrWhiteSpace(FolderPath))
+        if (string.IsNullOrWhiteSpace(FolderPath) || !Directory.Exists(FolderPath))
+        {
+            StatusText = "Invalid folder path";
             return;
+        }
 
         _isScanning = true;
         StatusText = "Scanning...";
         OnPropertyChanged(nameof(CanScan));
-        Folders.Clear();
-
-        ScanResult? result = null;
-        
-        try
-        {
-            result = await Task.Run(() => _service.Scan(FolderPath, IncludeSubfolders));
-        }
-        catch (Exception scanEx)
-        {
-            StatusText = $"Scan error: {scanEx.Message}";
-            AddLog($"[ERR] Scan failed: {scanEx.Message}");
-            AddLog($"[ERR] Stack trace: {scanEx.StackTrace}");
-            _isScanning = false;
-            RefreshProperties();
-            return;
-        }
+        RootNodes.Clear();
 
         try
         {
-            // Create view models on UI thread
-            foreach (var folder in result.Folders)
+            // Build the folder tree
+            var rootNode = await Task.Run(() => BuildFolderTree(FolderPath, _depthLimit));
+            
+            // Scan for existing icons
+            var scanResult = await Task.Run(() => _service.Scan(FolderPath, IncludeSubfolders));
+            
+            // Apply icon info to tree nodes
+            await Task.Run(() =>
             {
-                try
+                foreach (var folder in scanResult.Folders)
                 {
-                    var vm = new FolderItemViewModel(folder);
-                    
-                    // Check for backup (with error handling)
-                    try
+                    var node = rootNode.FindNode(folder.FolderPath);
+                    if (node != null)
                     {
-                        vm.HasBackup = _service.HasBackup(folder.FolderPath);
-                        if (vm.HasBackup)
+                        node.IconInfo = folder;
+                        node.HasIconInSubtree = true;
+                        
+                        // Check backup status
+                        try
                         {
-                            vm.SourceChanged = _service.HasSourceChanged(folder.FolderPath);
+                            node.HasBackup = _service.HasBackup(folder.FolderPath);
+                            if (node.HasBackup)
+                            {
+                                node.SourceChanged = _service.HasSourceChanged(folder.FolderPath);
+                            }
+                        }
+                        catch { /* Ignore backup check errors */ }
+
+                        // Mark parents as having icons in subtree
+                        var parent = node.Parent;
+                        while (parent != null)
+                        {
+                            parent.HasIconInSubtree = true;
+                            parent = parent.Parent;
                         }
                     }
-                    catch (Exception backupEx)
-                    {
-                        // Log but don't crash - backup check is optional
-                        AddLog($"[WRN] Could not check backup for {folder.FolderPath}: {backupEx.Message}");
-                    }
-                    
-                    Folders.Add(vm);
                 }
-                catch (Exception folderEx)
-                {
-                    AddLog($"[ERR] Error processing folder: {folderEx.Message}");
-                    AddLog($"[ERR] Stack: {folderEx.StackTrace}");
-                }
-            }
+            });
 
-            StatusText = $"Found {result.FoldersWithIcons} folder(s) with icons";
+            // Load icon thumbnails for folders with icons
+            await LoadIconThumbnailsAsync(rootNode);
+
+            // Smart expand: expand nodes with icons, collapse others
+            SmartExpand(rootNode);
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                RootNodes.Add(rootNode);
+                StatusText = $"Found {scanResult.FoldersWithIcons} folder(s) with icons";
+                OnPropertyChanged(nameof(SummaryText));
+            });
         }
         catch (Exception ex)
         {
             StatusText = $"Error: {ex.Message}";
-            AddLog($"[ERR] {ex.Message}");
-            AddLog($"[ERR] Stack trace: {ex.StackTrace}");
+            AddLog($"[ERR] Scan failed: {ex.Message}");
         }
         finally
         {
             _isScanning = false;
-            try
+            OnPropertyChanged(nameof(CanScan));
+        }
+    }
+
+    private FolderTreeNode BuildFolderTree(string rootPath, int? maxDepth)
+    {
+        var rootNode = new FolderTreeNode(rootPath);
+        BuildTreeRecursive(rootNode, 0, maxDepth);
+        return rootNode;
+    }
+
+    private void BuildTreeRecursive(FolderTreeNode node, int currentDepth, int? maxDepth)
+    {
+        if (maxDepth.HasValue && currentDepth >= maxDepth.Value)
+        {
+            node.AddDummyChild(); // Allow manual expansion
+            return;
+        }
+
+        node.MarkLoaded();
+
+        try
+        {
+            var dirInfo = new DirectoryInfo(node.FullPath);
+            foreach (var subDir in dirInfo.EnumerateDirectories())
             {
-                RefreshProperties();
+                // Skip hidden/system unless enabled
+                if (!_userData.Settings.ShowHiddenFolders)
+                {
+                    if ((subDir.Attributes & FileAttributes.Hidden) != 0 ||
+                        (subDir.Attributes & FileAttributes.System) != 0)
+                        continue;
+                }
+
+                var childNode = new FolderTreeNode(subDir.FullName, node);
+                node.Children.Add(childNode);
+                
+                BuildTreeRecursive(childNode, currentDepth + 1, maxDepth);
             }
-            catch (Exception refreshEx)
+        }
+        catch
+        {
+            // Access denied or other error
+        }
+    }
+
+    private async Task LoadIconThumbnailsAsync(FolderTreeNode root)
+    {
+        var iconsToLoad = new List<(string path, int index)>();
+        
+        CollectIconsRecursive(root, iconsToLoad);
+        
+        if (iconsToLoad.Count > 0)
+        {
+            await _iconCache.PreloadIconsAsync(iconsToLoad);
+            
+            // Now set the icons on nodes
+            Application.Current.Dispatcher.Invoke(() =>
             {
-                AddLog($"[ERR] RefreshProperties failed: {refreshEx.Message}");
+                SetIconImagesRecursive(root);
+            });
+        }
+    }
+
+    private void CollectIconsRecursive(FolderTreeNode node, List<(string, int)> icons)
+    {
+        if (node.IconInfo?.CurrentIconResource != null)
+        {
+            var path = node.IconInfo.ResolvedIconPath;
+            if (!string.IsNullOrEmpty(path))
+            {
+                icons.Add((path, node.IconInfo.CurrentIconResource.Index));
+            }
+        }
+
+        foreach (var child in node.Children)
+        {
+            CollectIconsRecursive(child, icons);
+        }
+    }
+
+    private void SetIconImagesRecursive(FolderTreeNode node)
+    {
+        if (node.IconInfo?.CurrentIconResource != null)
+        {
+            var path = node.IconInfo.ResolvedIconPath;
+            var index = node.IconInfo.CurrentIconResource.Index;
+            node.IconImage = _iconCache.GetFolderIcon(node.FullPath, path, index, node.IsExpanded);
+        }
+        else
+        {
+            node.IconImage = _iconCache.DefaultFolderIcon;
+        }
+
+        foreach (var child in node.Children)
+        {
+            SetIconImagesRecursive(child);
+        }
+    }
+
+    private void SmartExpand(FolderTreeNode node)
+    {
+        // Expand this node if any child has an icon (to make that child visible)
+        // But don't expand the child itself - user can do that manually
+        bool shouldExpand = node.Children.Any(c => c.HasIcon || c.HasIconInSubtree);
+        
+        if (shouldExpand)
+        {
+            node.IsExpanded = true;
+            
+            // Recurse only into children that have icon descendants (but aren't icon folders themselves)
+            // This expands the path TO icon folders without expanding the icon folders
+            foreach (var child in node.Children)
+            {
+                if (child.HasIconInSubtree)
+                {
+                    SmartExpand(child);
+                }
             }
         }
     }
 
-    private async Task FixSelectedAsync()
+    private void ExpandAll()
     {
-        if (SelectedFolder == null)
-            return;
-
-        await FixFoldersAsync([SelectedFolder.Model]);
+        foreach (var node in RootNodes)
+        {
+            node.ExpandAll();
+        }
     }
 
-    private async Task FixAllAsync()
+    private void CollapseAll()
     {
-        var externalFolders = Folders
-            .Where(f => f.Status == FolderIconStatus.ExternalAndValid)
-            .Select(f => f.Model)
-            .ToList();
-
-        if (externalFolders.Count == 0)
-            return;
-
-        await FixFoldersAsync(externalFolders);
+        foreach (var node in RootNodes)
+        {
+            node.CollapseAll();
+        }
     }
 
-    private async Task FixFoldersAsync(List<FolderIconInfo> folders)
+    private async Task SetIconAsync()
     {
+        if (SelectedNode == null) return;
+
+        var dialog = new Dialogs.IconPickerDialog(_userData);
+        dialog.Owner = Application.Current.MainWindow;
+        
+        if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.SelectedIconPath))
+        {
+            await ApplyIconAsync(
+                SelectedNode, 
+                dialog.SelectedIconPath, 
+                dialog.SelectedIconIndex, 
+                useLocal: dialog.UseLocalStorage);
+        }
+    }
+
+    private async Task MakeLocalAsync()
+    {
+        if (SelectedNode?.IconInfo == null) return;
+
         _isProcessing = true;
-        StatusText = $"Processing {folders.Count} folder(s)...";
-        OnPropertyChanged(nameof(CanScan));
+        StatusText = "Extracting icon...";
 
         try
         {
-            var result = await Task.Run(() => _service.ExtractAndInstall(folders, SkipExisting));
-
-            // Update the view models
-            foreach (var succeeded in result.Succeeded)
+            var result = await Task.Run(() => _service.ExtractAndInstall([SelectedNode.IconInfo], skipExisting: false));
+            
+            if (result.Succeeded.Count > 0)
             {
-                var vm = Folders.FirstOrDefault(f => f.FolderPath == succeeded.FolderPath);
-                if (vm != null)
-                {
-                    vm.UpdateStatus(FolderIconStatus.LocalAndValid);
-                    vm.HasBackup = true;
-                }
+                SelectedNode.Status = FolderIconStatus.LocalAndValid;
+                SelectedNode.HasBackup = true;
+                StatusText = "Icon extracted to local file";
+                
+                // Refresh icon image
+                RefreshNodeIcon(SelectedNode);
             }
-
-            StatusText = $"Done: {result.Succeeded.Count} fixed, {result.Skipped.Count} skipped, {result.Failed.Count} failed";
+            else
+            {
+                StatusText = "Failed to extract icon";
+            }
         }
         catch (Exception ex)
         {
@@ -275,28 +472,27 @@ public class MainViewModel : INotifyPropertyChanged
         finally
         {
             _isProcessing = false;
-            RefreshProperties();
+            RefreshCommandStates();
         }
     }
 
-    private async Task RestoreSelectedAsync()
+    private async Task RestoreAsync()
     {
-        if (SelectedFolder == null)
-            return;
+        if (SelectedNode == null) return;
 
         _isProcessing = true;
         StatusText = "Restoring...";
-        OnPropertyChanged(nameof(CanScan));
 
         try
         {
-            var success = await Task.Run(() => _service.RestoreFromBackup(SelectedFolder.FolderPath));
+            var success = await Task.Run(() => _service.RestoreFromBackup(SelectedNode.FullPath));
             
             if (success)
             {
-                SelectedFolder.UpdateStatus(FolderIconStatus.ExternalAndValid);
-                SelectedFolder.HasBackup = false;
-                StatusText = "Restored to original icon reference";
+                SelectedNode.Status = FolderIconStatus.ExternalAndValid;
+                SelectedNode.HasBackup = false;
+                StatusText = "Restored to original icon";
+                RefreshNodeIcon(SelectedNode);
             }
             else
             {
@@ -306,110 +502,152 @@ public class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             StatusText = $"Error: {ex.Message}";
-            AddLog($"[ERR] {ex.Message}");
         }
         finally
         {
             _isProcessing = false;
-            RefreshProperties();
+            RefreshCommandStates();
         }
     }
 
-    private async Task RestoreAllAsync()
+    private async Task UpdateFromSourceAsync()
     {
-        var foldersWithBackup = Folders.Where(f => f.HasBackup).ToList();
-        if (foldersWithBackup.Count == 0)
-            return;
-
-        _isProcessing = true;
-        StatusText = $"Restoring {foldersWithBackup.Count} folder(s)...";
-        OnPropertyChanged(nameof(CanScan));
-
-        try
-        {
-            var restoredCount = 0;
-            await Task.Run(() =>
-            {
-                foreach (var folder in foldersWithBackup)
-                {
-                    if (_service.RestoreFromBackup(folder.FolderPath))
-                    {
-                        restoredCount++;
-                        Application.Current.Dispatcher.Invoke(() =>
-                        {
-                            folder.UpdateStatus(FolderIconStatus.ExternalAndValid);
-                            folder.HasBackup = false;
-                        });
-                    }
-                }
-            });
-
-            StatusText = $"Restored {restoredCount} folder(s)";
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"Error: {ex.Message}";
-            AddLog($"[ERR] {ex.Message}");
-        }
-        finally
-        {
-            _isProcessing = false;
-            RefreshProperties();
-        }
-    }
-
-    private async Task UpdateSelectedAsync()
-    {
-        if (SelectedFolder == null)
-            return;
+        if (SelectedNode == null) return;
 
         _isProcessing = true;
         StatusText = "Updating from source...";
-        OnPropertyChanged(nameof(CanScan));
 
         try
         {
-            var success = await Task.Run(() => _service.UpdateFromSource(SelectedFolder.FolderPath));
+            var success = await Task.Run(() => _service.UpdateFromSource(SelectedNode.FullPath));
             
             if (success)
             {
-                SelectedFolder.SourceChanged = false;
-                StatusText = "Updated from original source";
+                SelectedNode.SourceChanged = false;
+                StatusText = "Updated from source";
+                RefreshNodeIcon(SelectedNode);
             }
             else
             {
-                StatusText = "Source not found or update failed";
+                StatusText = "Failed to update";
             }
         }
         catch (Exception ex)
         {
             StatusText = $"Error: {ex.Message}";
-            AddLog($"[ERR] {ex.Message}");
         }
         finally
         {
             _isProcessing = false;
-            RefreshProperties();
+            RefreshCommandStates();
         }
     }
 
-    private async Task UpdateAllAsync()
+    private async Task RemoveIconAsync()
     {
+        if (SelectedNode == null) return;
+
         _isProcessing = true;
-        StatusText = "Checking for updates...";
-        OnPropertyChanged(nameof(CanScan));
+        StatusText = "Removing icon...";
 
         try
         {
-            var updatedCount = await Task.Run(() => _service.UpdateAll(FolderPath, IncludeSubfolders, forceUpdate: false));
-
-            // Refresh source changed status
-            foreach (var folder in Folders.Where(f => f.HasBackup))
+            await Task.Run(() =>
             {
-                folder.SourceChanged = _service.HasSourceChanged(folder.FolderPath);
-            }
+                var iniPath = Path.Combine(SelectedNode.FullPath, "desktop.ini");
+                
+                if (File.Exists(iniPath))
+                {
+                    // Clear attributes
+                    File.SetAttributes(iniPath, FileAttributes.Normal);
+                    
+                    // Remove IconResource from desktop.ini
+                    // For simplicity, just delete the file if it only has icon info
+                    // TODO: Properly edit INI to preserve other settings
+                    File.Delete(iniPath);
+                }
 
-            StatusText = $"Updated {updatedCount} folder(s) from changed sources";
+                // Remove local icon if exists
+                var localIcon = Path.Combine(SelectedNode.FullPath, "folder.ico");
+                if (File.Exists(localIcon))
+                {
+                    File.SetAttributes(localIcon, FileAttributes.Normal);
+                    File.Delete(localIcon);
+                }
+
+                // Remove backup manifest
+                BackupManifest.Delete(SelectedNode.FullPath);
+
+                // Notify shell
+                Core.Native.FileAttributeHelper.NotifyShellOfChange(SelectedNode.FullPath);
+            });
+
+            SelectedNode.Status = FolderIconStatus.NoIcon;
+            SelectedNode.IconInfo = null;
+            SelectedNode.HasBackup = false;
+            SelectedNode.IconImage = _iconCache.DefaultFolderIcon;
+            StatusText = "Icon removed";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+            RefreshCommandStates();
+            OnPropertyChanged(nameof(SummaryText));
+        }
+    }
+
+    private async Task ApplyIconAsync(FolderTreeNode node, string iconPath, int iconIndex, bool useLocal)
+    {
+        _isProcessing = true;
+        StatusText = "Applying icon...";
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                if (useLocal)
+                {
+                    // Extract to local folder.ico
+                    var localPath = Path.Combine(node.FullPath, "folder.ico");
+                    _service.ExtractIconFromPath(iconPath, iconIndex, localPath);
+                    _service.UpdateDesktopIni(node.FullPath, localPath);
+                    _service.ApplyAttributes(node.FullPath, localPath);
+                    
+                    // Create backup manifest
+                    var manifest = new BackupManifest
+                    {
+                        BackupDate = DateTime.Now,
+                        OriginalIconPath = iconPath,
+                        OriginalIconIndex = iconIndex,
+                        LocalIconName = "folder.ico"
+                    };
+                    manifest.Save(node.FullPath);
+                }
+                else
+                {
+                    // Use external reference
+                    var iniPath = Path.Combine(node.FullPath, "desktop.ini");
+                    var iniFile = new Core.Native.IniFile(iniPath);
+                    iniFile.WriteIconResource(iconPath, iconIndex);
+                    _service.ApplyAttributes(node.FullPath, "");
+                }
+
+                Core.Native.FileAttributeHelper.NotifyShellOfChange(node.FullPath);
+            });
+
+            // Update node
+            node.Status = useLocal ? FolderIconStatus.LocalAndValid : FolderIconStatus.ExternalAndValid;
+            node.HasBackup = useLocal;
+            RefreshNodeIcon(node);
+            
+            // Add to recent
+            _userData.AddRecentIcon(new IconReference { FilePath = iconPath, Index = iconIndex });
+            
+            StatusText = "Icon applied";
         }
         catch (Exception ex)
         {
@@ -419,8 +657,72 @@ public class MainViewModel : INotifyPropertyChanged
         finally
         {
             _isProcessing = false;
-            RefreshProperties();
+            RefreshCommandStates();
+            OnPropertyChanged(nameof(SummaryText));
         }
+    }
+
+    private void RefreshNodeIcon(FolderTreeNode node)
+    {
+        if (node.IconInfo?.CurrentIconResource != null)
+        {
+            var path = node.IconInfo.ResolvedIconPath;
+            var index = node.IconInfo.CurrentIconResource.Index;
+            node.IconImage = _iconCache.GetFolderIcon(node.FullPath, path, index, node.IsExpanded);
+        }
+        else
+        {
+            // Reload icon info
+            var localIcon = Path.Combine(node.FullPath, "folder.ico");
+            if (File.Exists(localIcon))
+            {
+                node.IconImage = _iconCache.GetFolderIcon(node.FullPath, localIcon, 0, node.IsExpanded);
+            }
+            else
+            {
+                node.IconImage = _iconCache.DefaultFolderIcon;
+            }
+        }
+    }
+
+    private async Task UndoAsync()
+    {
+        // TODO: Implement undo logic
+        await Task.CompletedTask;
+    }
+
+    private void OpenInExplorer()
+    {
+        if (SelectedNode == null) return;
+        
+        try
+        {
+            System.Diagnostics.Process.Start("explorer.exe", SelectedNode.FullPath);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"[ERR] Could not open explorer: {ex.Message}");
+        }
+    }
+
+    private void CopyPath()
+    {
+        if (SelectedNode == null) return;
+        
+        try
+        {
+            Clipboard.SetText(SelectedNode.FullPath);
+            StatusText = "Path copied to clipboard";
+        }
+        catch
+        {
+            // Clipboard errors - ignore
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        // TODO: Implement filtering
     }
 
     private void ClearLog()
@@ -429,12 +731,24 @@ public class MainViewModel : INotifyPropertyChanged
         _service.Log.Clear();
     }
 
-    private void RefreshProperties()
+    private void OpenSettings()
+    {
+        var dialog = new Dialogs.SettingsDialog(_userData);
+        dialog.Owner = Application.Current.MainWindow;
+        
+        if (dialog.ShowDialog() == true)
+        {
+            // Settings were saved - update local state
+            IncludeSubfolders = _userData.Settings.IncludeSubfoldersByDefault;
+            DepthLimit = _userData.Settings.ScanDepthLimit;
+            AddLog("[INF] Settings saved");
+        }
+    }
+
+    private void RefreshCommandStates()
     {
         OnPropertyChanged(nameof(CanScan));
-        OnPropertyChanged(nameof(HasExternalIcons));
-        OnPropertyChanged(nameof(HasLocalWithBackup));
-        OnPropertyChanged(nameof(SummaryText));
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private void OnLogEntry(LogEntry entry)
@@ -442,12 +756,8 @@ public class MainViewModel : INotifyPropertyChanged
         Application.Current.Dispatcher.Invoke(() =>
         {
             LogEntries.Add(entry.ToString());
-            
-            // Keep log size manageable
             while (LogEntries.Count > 1000)
-            {
                 LogEntries.RemoveAt(0);
-            }
         });
     }
 
@@ -457,6 +767,51 @@ public class MainViewModel : INotifyPropertyChanged
         {
             LogEntries.Add($"{DateTime.Now:HH:mm:ss} {message}");
         });
+    }
+
+    private static IEnumerable<FolderTreeNode> GetAllNodes(IEnumerable<FolderTreeNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            foreach (var child in GetAllNodes(node.Children))
+            {
+                yield return child;
+            }
+        }
+    }
+
+    #endregion
+
+    #region Window State
+
+    public void SaveWindowState(Window window)
+    {
+        _userData.Settings.WindowLeft = window.Left;
+        _userData.Settings.WindowTop = window.Top;
+        _userData.Settings.WindowWidth = window.Width;
+        _userData.Settings.WindowHeight = window.Height;
+        _userData.Settings.WindowMaximized = window.WindowState == WindowState.Maximized;
+        _userData.SaveSettings();
+    }
+
+    public void RestoreWindowState(Window window)
+    {
+        var s = _userData.Settings;
+        if (s.WindowWidth.HasValue && s.WindowHeight.HasValue)
+        {
+            window.Width = s.WindowWidth.Value;
+            window.Height = s.WindowHeight.Value;
+        }
+        if (s.WindowLeft.HasValue && s.WindowTop.HasValue)
+        {
+            window.Left = s.WindowLeft.Value;
+            window.Top = s.WindowTop.Value;
+        }
+        if (s.WindowMaximized == true)
+        {
+            window.WindowState = WindowState.Maximized;
+        }
     }
 
     #endregion
@@ -473,155 +828,13 @@ public class MainViewModel : INotifyPropertyChanged
     #endregion
 }
 
-/// <summary>
-/// View model for a single folder item in the list
-/// </summary>
-public class FolderItemViewModel : INotifyPropertyChanged
+public enum FilterMode
 {
-    private FolderIconStatus _status;
-    private bool _hasBackup;
-    private bool _sourceChanged;
-
-    public FolderItemViewModel(FolderIconInfo model)
-    {
-        Model = model;
-        _status = model.Status;
-    }
-
-    public FolderIconInfo Model { get; }
-
-    public string FolderPath => Model.FolderPath;
-
-    public FolderIconStatus Status
-    {
-        get => _status;
-        private set
-        {
-            _status = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(StatusIcon));
-            OnPropertyChanged(nameof(StatusText));
-            OnPropertyChanged(nameof(StatusDescription));
-            OnPropertyChanged(nameof(StatusBrush));
-        }
-    }
-
-    public bool HasBackup
-    {
-        get => _hasBackup;
-        set
-        {
-            _hasBackup = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(BackupIndicator));
-        }
-    }
-
-    public bool SourceChanged
-    {
-        get => _sourceChanged;
-        set
-        {
-            _sourceChanged = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(BackupIndicator));
-        }
-    }
-
-    public string BackupIndicator
-    {
-        get
-        {
-            if (!HasBackup) return "";
-            return SourceChanged ? "⟳" : "✎";  // ⟳ = source changed, ✎ = has backup
-        }
-    }
-
-    public string StatusIcon => Status switch
-    {
-        FolderIconStatus.LocalAndValid => "✓",
-        FolderIconStatus.LocalButMissing => "⚠",
-        FolderIconStatus.ExternalAndValid => "→",
-        FolderIconStatus.ExternalAndBroken => "✗",
-        _ => "?"
-    };
-
-    public string StatusText => Status switch
-    {
-        FolderIconStatus.LocalAndValid => "Local",
-        FolderIconStatus.LocalButMissing => "Missing",
-        FolderIconStatus.ExternalAndValid => "External",
-        FolderIconStatus.ExternalAndBroken => "Broken",
-        _ => "Unknown"
-    };
-
-    public string StatusDescription => Status switch
-    {
-        FolderIconStatus.LocalAndValid => HasBackup 
-            ? (SourceChanged ? "Local icon - source has been updated" : "Local icon - backup available")
-            : "Local icon",
-        FolderIconStatus.LocalButMissing => "Local icon file is missing",
-        FolderIconStatus.ExternalAndValid => "Icon references external file",
-        FolderIconStatus.ExternalAndBroken => "Icon source file not found",
-        _ => ""
-    };
-
-    // Static frozen brushes for thread safety in WPF
-    private static readonly Brush GreenBrush;
-    private static readonly Brush YellowBrush;
-    private static readonly Brush OrangeBrush;
-    private static readonly Brush RedBrush;
-    private static readonly Brush GrayBrush;
-
-    static FolderItemViewModel()
-    {
-        GreenBrush = new SolidColorBrush(Color.FromRgb(78, 201, 176));
-        GreenBrush.Freeze();
-        YellowBrush = new SolidColorBrush(Color.FromRgb(220, 220, 170));
-        YellowBrush.Freeze();
-        OrangeBrush = new SolidColorBrush(Color.FromRgb(206, 145, 120));
-        OrangeBrush.Freeze();
-        RedBrush = new SolidColorBrush(Color.FromRgb(241, 76, 76));
-        RedBrush.Freeze();
-        GrayBrush = new SolidColorBrush(Color.FromRgb(133, 133, 133));
-        GrayBrush.Freeze();
-    }
-
-    public Brush StatusBrush => Status switch
-    {
-        FolderIconStatus.LocalAndValid => GreenBrush,
-        FolderIconStatus.LocalButMissing => YellowBrush,
-        FolderIconStatus.ExternalAndValid => OrangeBrush,
-        FolderIconStatus.ExternalAndBroken => RedBrush,
-        _ => GrayBrush
-    };
-
-    public string SourceDescription
-    {
-        get
-        {
-            if (Model.CurrentIconResource == null)
-                return "";
-
-            var source = Model.CurrentIconResource.FilePath;
-            if (Model.CurrentIconResource.Index != 0)
-                source += $",{Model.CurrentIconResource.Index}";
-
-            return source;
-        }
-    }
-
-    public void UpdateStatus(FolderIconStatus newStatus)
-    {
-        Status = newStatus;
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    All,
+    WithIcons,
+    ExternalOnly,
+    BrokenOnly,
+    NoIcon
 }
 
 /// <summary>
@@ -656,12 +869,8 @@ public class RelayCommand : ICommand
     public async void Execute(object? parameter)
     {
         if (_executeAsync != null)
-        {
             await _executeAsync();
-        }
         else
-        {
             _execute?.Invoke();
-        }
     }
 }

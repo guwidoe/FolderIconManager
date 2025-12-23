@@ -3,26 +3,36 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FolderIconManager.GUI"
         Title="Folder Icon Manager" 
-        Height="700" Width="1000"
-        MinHeight="500" MinWidth="700"
+        Height="750" Width="1100"
+        MinHeight="500" MinWidth="800"
         Background="{StaticResource BackgroundDarkBrush}"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing"
+        Loaded="Window_Loaded">
     
     <Window.DataContext>
         <local:MainViewModel/>
     </Window.DataContext>
 
-    <Grid Margin="16">
+    <Window.InputBindings>
+        <KeyBinding Key="I" Modifiers="Ctrl" Command="{Binding SetIconCommand}"/>
+        <KeyBinding Key="E" Modifiers="Ctrl" Command="{Binding OpenInExplorerCommand}"/>
+        <KeyBinding Key="C" Modifiers="Ctrl" Command="{Binding CopyPathCommand}"/>
+        <KeyBinding Key="Z" Modifiers="Ctrl" Command="{Binding UndoCommand}"/>
+    </Window.InputBindings>
+
+    <Grid Margin="12">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="200"/>
+            <RowDefinition Height="180"/>
         </Grid.RowDefinitions>
 
         <!-- Header / Folder Selection -->
         <Border Grid.Row="0" Background="{StaticResource BackgroundMediumBrush}" 
-                CornerRadius="6" Padding="16" Margin="0,0,0,12">
+                CornerRadius="6" Padding="12" Margin="0,0,0,8">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -57,196 +67,260 @@
                         IsEnabled="{Binding CanScan}"
                         Margin="0,0,8,0"/>
 
-                <!-- Options -->
+                <!-- Options Row -->
                 <StackPanel Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="3" 
-                            Orientation="Horizontal" Margin="0,12,0,0">
+                            Orientation="Horizontal" Margin="0,10,0,0">
                     <CheckBox Content="Include subfolders" 
                               IsChecked="{Binding IncludeSubfolders}"
                               Style="{StaticResource ModernCheckBox}"
-                              Margin="0,0,24,0"/>
-                    <CheckBox Content="Skip already local icons" 
-                              IsChecked="{Binding SkipExisting}"
-                              Style="{StaticResource ModernCheckBox}"/>
+                              Margin="0,0,20,0"/>
+                    
+                    <TextBlock Text="Depth:" 
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding DepthLimitOptions}"
+                              SelectedItem="{Binding DepthLimit}"
+                              Width="100"
+                              Background="{StaticResource BackgroundLightBrush}"
+                              Foreground="{StaticResource TextPrimaryBrush}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource DepthLimitConverter}}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
 
+                <!-- Settings Button -->
+                <Button Grid.Column="3" Grid.Row="0"
+                        Content="⚙️"
+                        Command="{Binding OpenSettingsCommand}"
+                        Style="{StaticResource ModernButton}"
+                        ToolTip="Settings"
+                        FontSize="16"
+                        Padding="10,6"/>
+
                 <!-- Status -->
-                <TextBlock Grid.Column="3" Grid.Row="0" Grid.RowSpan="2"
+                <TextBlock Grid.Column="3" Grid.Row="1"
                            Text="{Binding StatusText}"
                            Foreground="{StaticResource TextSecondaryBrush}"
                            VerticalAlignment="Center"
-                           Margin="16,0,0,0"/>
+                           TextWrapping="Wrap"
+                           MaxWidth="200"
+                           Margin="0,8,0,0"/>
             </Grid>
         </Border>
 
-        <!-- Folder List -->
+        <!-- Toolbar -->
         <Border Grid.Row="1" Background="{StaticResource BackgroundMediumBrush}" 
-                CornerRadius="6" Margin="0,0,0,12">
+                CornerRadius="6" Padding="8" Margin="0,0,0,8">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <DataGrid Grid.Row="0"
-                          ItemsSource="{Binding Folders}"
-                          SelectedItem="{Binding SelectedFolder}"
-                          AutoGenerateColumns="False"
-                          IsReadOnly="True"
-                          SelectionMode="Extended"
-                          CanUserAddRows="False"
-                          CanUserDeleteRows="False"
-                          CanUserReorderColumns="False"
-                          BorderThickness="0"
-                          Margin="1">
-                    <DataGrid.Columns>
-                        <!-- Status Icon -->
-                        <DataGridTemplateColumn Header="" Width="40">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding StatusIcon}" 
-                                               FontSize="16" 
-                                               HorizontalAlignment="Center"
-                                               ToolTip="{Binding StatusDescription}"/>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
+                <!-- Expand/Collapse -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button Content="➕ Expand" 
+                            Command="{Binding ExpandAllCommand}"
+                            Style="{StaticResource ModernButton}"
+                            Padding="8,6"
+                            Margin="0,0,4,0"
+                            ToolTip="Expand All"/>
+                    <Button Content="➖ Collapse" 
+                            Command="{Binding CollapseAllCommand}"
+                            Style="{StaticResource ModernButton}"
+                            Padding="8,6"
+                            ToolTip="Collapse All"/>
+                </StackPanel>
 
-                        <!-- Status Text -->
-                        <DataGridTextColumn Header="Status" 
-                                            Binding="{Binding StatusText}" 
-                                            Width="90">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-
-                        <!-- Backup Indicator -->
-                        <DataGridTemplateColumn Header="Backup" Width="50">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding BackupIndicator}" 
-                                               FontSize="14" 
-                                               HorizontalAlignment="Center"
-                                               Foreground="{StaticResource AccentBlueBrush}">
-                                        <TextBlock.ToolTip>
-                                            <TextBlock>
-                                                <TextBlock.Text>
-                                                    <MultiBinding StringFormat="{}Has backup: {0}&#x0a;Source changed: {1}">
-                                                        <Binding Path="HasBackup"/>
-                                                        <Binding Path="SourceChanged"/>
-                                                    </MultiBinding>
-                                                </TextBlock.Text>
-                                            </TextBlock>
-                                        </TextBlock.ToolTip>
-                                    </TextBlock>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-
-                        <!-- Folder Path -->
-                        <DataGridTextColumn Header="Folder" 
-                                            Binding="{Binding FolderPath}" 
-                                            Width="*">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-
-                        <!-- Source -->
-                        <DataGridTextColumn Header="Icon Source" 
-                                            Binding="{Binding SourceDescription}" 
-                                            Width="250">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <!-- Separator -->
+                <Border Grid.Column="1" Width="1" Background="{StaticResource BorderBrush}" Margin="8,2"/>
 
                 <!-- Action Buttons -->
-                <Border Grid.Row="1" Background="{StaticResource BackgroundDarkBrush}" 
-                        Padding="12,8">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Content="🖼️ Set Icon" 
+                            Command="{Binding SetIconCommand}"
+                            Style="{StaticResource ModernButton}"
+                            Padding="8,6"
+                            Margin="0,0,4,0"
+                            ToolTip="Set icon for selected folder (Ctrl+I)"/>
+                    <Button Content="📥 Make Local" 
+                            Command="{Binding MakeLocalCommand}"
+                            Style="{StaticResource ModernButton}"
+                            Padding="8,6"
+                            Margin="0,0,4,0"
+                            ToolTip="Extract external icon to local folder.ico"/>
+                    <Button Content="↩️ Restore" 
+                            Command="{Binding RestoreCommand}"
+                            Style="{StaticResource ModernButton}"
+                            Padding="8,6"
+                            Margin="0,0,4,0"
+                            ToolTip="Restore original external icon reference"/>
+                    <Button Content="🗑️ Remove" 
+                            Command="{Binding RemoveIconCommand}"
+                            Style="{StaticResource ModernButton}"
+                            Padding="8,6"
+                            ToolTip="Remove custom icon"/>
+                </StackPanel>
 
-                        <!-- Summary -->
-                        <TextBlock Grid.Column="0" 
-                                   Text="{Binding SummaryText}"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   VerticalAlignment="Center"/>
+                <!-- Separator -->
+                <Border Grid.Column="3" Width="1" Background="{StaticResource BorderBrush}" Margin="8,2"/>
 
-                        <!-- Fix Selected -->
-                        <Button Grid.Column="2"
-                                Content="Fix Selected"
-                                Command="{Binding FixSelectedCommand}"
-                                Style="{StaticResource ModernButton}"
-                                ToolTip="Extract icon to local folder.ico and update desktop.ini"
-                                Margin="0,0,8,0"/>
+                <!-- Filter (placeholder) -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal">
+                    <TextBlock Text="Filter:" 
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"/>
+                    <ComboBox Width="120"
+                              SelectedIndex="0"
+                              Background="{StaticResource BackgroundLightBrush}"
+                              Foreground="{StaticResource TextPrimaryBrush}">
+                        <ComboBoxItem Content="All"/>
+                        <ComboBoxItem Content="With Icons"/>
+                        <ComboBoxItem Content="External Only"/>
+                        <ComboBoxItem Content="Broken Only"/>
+                        <ComboBoxItem Content="No Icon"/>
+                    </ComboBox>
+                </StackPanel>
 
-                        <!-- Fix All External -->
-                        <Button Grid.Column="3"
-                                Content="🔧 Fix All"
-                                Command="{Binding FixAllCommand}"
-                                Style="{StaticResource PrimaryButton}"
-                                ToolTip="Fix all folders with external icon references"
-                                Margin="0,0,16,0"/>
-
-                        <!-- Separator -->
-                        <Border Grid.Column="4" Width="1" Background="{StaticResource BackgroundLightBrush}" Margin="0,2"/>
-
-                        <!-- Restore Selected -->
-                        <Button Grid.Column="5"
-                                Content="↩ Restore"
-                                Command="{Binding RestoreSelectedCommand}"
-                                Style="{StaticResource ModernButton}"
-                                ToolTip="Restore selected folder to original external icon reference"
-                                Margin="16,0,8,0"/>
-
-                        <!-- Update Selected -->
-                        <Button Grid.Column="6"
-                                Content="⟳ Update"
-                                Command="{Binding UpdateSelectedCommand}"
-                                Style="{StaticResource ModernButton}"
-                                ToolTip="Re-extract icon from original source (if changed)"
-                                Margin="0,0,8,0"/>
-
-                        <!-- Update All -->
-                        <Button Grid.Column="7"
-                                Content="⟳ Update All"
-                                Command="{Binding UpdateAllCommand}"
-                                Style="{StaticResource ModernButton}"
-                                ToolTip="Update all local icons from changed sources"/>
-                    </Grid>
-                </Border>
+                <!-- Summary -->
+                <TextBlock Grid.Column="5" 
+                           Text="{Binding SummaryText}"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center"/>
             </Grid>
+        </Border>
+
+        <!-- Tree View -->
+        <Border Grid.Row="2" Background="{StaticResource BackgroundMediumBrush}" 
+                CornerRadius="6" Margin="0,0,0,8">
+            <TreeView ItemsSource="{Binding RootNodes}"
+                      Background="Transparent"
+                      BorderThickness="0"
+                      Padding="4"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      SelectedItemChanged="TreeView_SelectedItemChanged">
+                
+                <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        <Setter Property="Padding" Value="2"/>
+                        <Setter Property="Margin" Value="0,1"/>
+                        <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{StaticResource AccentBlueBrush}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </TreeView.ItemContainerStyle>
+                
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                        <Grid Margin="2,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="30"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Icon Thumbnail -->
+                            <Image Grid.Column="0" 
+                                   Source="{Binding IconImage}" 
+                                   Width="20" Height="20"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                            <!-- Folder Name -->
+                            <TextBlock Grid.Column="1" 
+                                       Text="{Binding Name}" 
+                                       VerticalAlignment="Center"
+                                       Margin="6,0,12,0"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <!-- Source Description -->
+                            <TextBlock Grid.Column="2" 
+                                       Text="{Binding SourceDescription}" 
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxWidth="300"
+                                       Margin="0,0,12,0"
+                                       FontSize="11"/>
+
+                            <!-- Status -->
+                            <Border Grid.Column="3" 
+                                    Background="{StaticResource BackgroundLightBrush}"
+                                    CornerRadius="3"
+                                    Padding="6,2"
+                                    VerticalAlignment="Center"
+                                    Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="{Binding StatusText}" 
+                                           Foreground="{Binding StatusBrush}"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"/>
+                            </Border>
+
+                            <!-- Backup Indicator -->
+                            <TextBlock Grid.Column="4" 
+                                       Text="{Binding BackupIndicator}" 
+                                       Foreground="{StaticResource AccentGreenBrush}"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center"
+                                       FontSize="14"
+                                       ToolTip="Has backup / Source changed"/>
+                        </Grid>
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+
+                <!-- Context Menu - uses PlacementTarget to bind to main window's DataContext -->
+                <TreeView.ContextMenu>
+                    <ContextMenu Background="{StaticResource BackgroundMediumBrush}"
+                                 DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                        <MenuItem Header="🖼️ Set Icon..." 
+                                  Command="{Binding SetIconCommand}"
+                                  InputGestureText="Ctrl+I"/>
+                        <Separator/>
+                        <MenuItem Header="📥 Make Local (Extract)" 
+                                  Command="{Binding MakeLocalCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="↩️ Restore Original" 
+                                  Command="{Binding RestoreCommand}"/>
+                        <MenuItem Header="🔄 Update from Source" 
+                                  Command="{Binding UpdateFromSourceCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="🗑️ Remove Icon" 
+                                  Command="{Binding RemoveIconCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="📂 Open in Explorer" 
+                                  Command="{Binding OpenInExplorerCommand}"
+                                  InputGestureText="Ctrl+E"/>
+                        <MenuItem Header="📋 Copy Path" 
+                                  Command="{Binding CopyPathCommand}"
+                                  InputGestureText="Ctrl+C"/>
+                    </ContextMenu>
+                </TreeView.ContextMenu>
+            </TreeView>
         </Border>
 
         <!-- Splitter -->
-        <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" 
+        <GridSplitter Grid.Row="3" Height="4" HorizontalAlignment="Stretch" 
                       Background="Transparent" Cursor="SizeNS"/>
 
         <!-- Log Panel -->
-        <Border Grid.Row="3" Background="{StaticResource BackgroundMediumBrush}" 
+        <Border Grid.Row="4" Background="{StaticResource BackgroundMediumBrush}" 
                 CornerRadius="6">
             <Grid>
                 <Grid.RowDefinitions>
@@ -256,7 +330,7 @@
 
                 <!-- Log Header -->
                 <Border Grid.Row="0" Background="{StaticResource BackgroundDarkBrush}" 
-                        CornerRadius="6,6,0,0" Padding="12,8">
+                        CornerRadius="6,6,0,0" Padding="10,6">
                     <Grid>
                         <TextBlock Text="Log" 
                                    Foreground="{StaticResource TextSecondaryBrush}"
@@ -264,7 +338,7 @@
                         <Button Content="Clear" 
                                 Command="{Binding ClearLogCommand}"
                                 Style="{StaticResource ModernButton}"
-                                Padding="8,4"
+                                Padding="8,3"
                                 HorizontalAlignment="Right"/>
                     </Grid>
                 </Border>
@@ -272,14 +346,13 @@
                 <!-- Log Content -->
                 <ScrollViewer Grid.Row="1" 
                               VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Auto"
-                              x:Name="LogScrollViewer">
+                              HorizontalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding LogEntries}" Margin="8">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding}" 
                                            FontFamily="Cascadia Code, Consolas, Courier New"
-                                           FontSize="12"
+                                           FontSize="11"
                                            Foreground="{Binding Converter={StaticResource LogLevelToBrushConverter}}"
                                            Margin="0,1"/>
                             </DataTemplate>
@@ -290,4 +363,3 @@
         </Border>
     </Grid>
 </Window>
-

@@ -6,6 +6,9 @@
     <Application.Resources>
         <!-- Converters -->
         <local:LogLevelToBrushConverter x:Key="LogLevelToBrushConverter"/>
+        <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <local:DepthLimitConverter x:Key="DepthLimitConverter"/>
+        <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
         <!-- Color Palette - Dark theme inspired by modern IDEs -->
         <Color x:Key="BackgroundDark">#1E1E1E</Color>
         <Color x:Key="BackgroundMedium">#252526</Color>

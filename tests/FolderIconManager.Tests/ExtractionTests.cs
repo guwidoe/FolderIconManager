@@ -114,5 +114,144 @@ public class ExtractionTests : IClassFixture<TestFixture>
         Assert.Equal(2, result.Skipped.Count);
         Assert.Empty(result.Succeeded);
     }
+
+    /// <summary>
+    /// Tests Windows icon index convention:
+    /// - Positive numbers are ordinal indices (0-based position in icon list)
+    /// - Negative numbers are direct resource IDs
+    /// 
+    /// Example: imageres.dll,266 means "icon at position 266" (the 267th icon)
+    /// </summary>
+    [Fact]
+    public void IconExtractor_OrdinalIndex_ExtractsCorrectPosition()
+    {
+        // Arrange - Use imageres.dll which has many icons
+        var imageresPath = @"C:\Windows\System32\imageres.dll";
+        if (!File.Exists(imageresPath))
+            return;
+
+        using var extractor = new IconExtractor(imageresPath);
+        
+        Assert.True(extractor.IconCount > 266, $"imageres.dll should have more than 266 icons (has {extractor.IconCount})");
+
+        // The resource ID at ordinal position 266 (0-based)
+        var resourceIdAtPosition266 = extractor.ResourceIds[266];
+        
+        // Act - Extract icon at ordinal position 266
+        var outputPath = Path.Combine(_fixture.TestDataPath, "test_imageres_ordinal_266.ico");
+        extractor.SaveIcon(266, outputPath);
+
+        // Assert
+        Assert.True(File.Exists(outputPath), "Icon file should be created");
+        var fileInfo = new FileInfo(outputPath);
+        Assert.True(fileInfo.Length > 1000, "Icon file should have content");
+    }
+
+    /// <summary>
+    /// Tests that negative indices are treated as direct resource IDs (Windows convention).
+    /// </summary>
+    [Fact]
+    public void IconExtractor_NegativeIndex_TreatedAsResourceId()
+    {
+        // Arrange
+        var shell32Path = @"C:\Windows\System32\shell32.dll";
+        if (!File.Exists(shell32Path))
+            return;
+
+        using var extractor = new IconExtractor(shell32Path);
+
+        // shell32.dll has resource ID 4 (folder icon)
+        Assert.True(extractor.HasResourceId(4), "shell32.dll should have resource ID 4");
+
+        // Act - Extract using negative index (resource ID convention)
+        var outputPath = Path.Combine(_fixture.TestDataPath, "test_shell32_neg4.ico");
+        extractor.SaveIcon(-4, outputPath);
+
+        // Assert - File was created
+        Assert.True(File.Exists(outputPath));
+        var fileInfo = new FileInfo(outputPath);
+        Assert.True(fileInfo.Length > 1000, "Icon file should have content");
+    }
+
+    /// <summary>
+    /// End-to-end test: Create a folder with a high ordinal index reference,
+    /// fix it, and verify the correct icon is extracted.
+    /// 
+    /// Windows convention: imageres.dll,266 = ordinal position 266 (the 267th icon)
+    /// </summary>
+    [Fact]
+    public void ExtractAndInstall_HighOrdinalIndex_ExtractsCorrectIcon()
+    {
+        // Arrange - Create a test folder with imageres.dll,266 (high ordinal index)
+        var testFolderPath = Path.Combine(_fixture.TestDataPath, "HighOrdinalIndexTest");
+        Directory.CreateDirectory(testFolderPath);
+        
+        // Write desktop.ini with high ordinal index (266)
+        var iniPath = Path.Combine(testFolderPath, "desktop.ini");
+        File.WriteAllText(iniPath, 
+            "[.ShellClassInfo]\r\n" +
+            "IconResource=C:\\Windows\\System32\\imageres.dll,266\r\n");
+
+        try
+        {
+            var service = new FolderIconService();
+            
+            // Scan
+            var scanResult = service.Scan(testFolderPath, recursive: false);
+            Assert.Single(scanResult.Folders);
+            
+            var folder = scanResult.Folders.First();
+            Assert.Equal(266, folder.CurrentIconResource?.Index);
+            Assert.Equal(FolderIconStatus.ExternalAndValid, folder.Status);
+
+            // Act - Fix (extract icon)
+            var extractResult = service.ExtractAndInstall(new[] { folder }, skipExisting: false);
+
+            // Assert
+            Assert.Single(extractResult.Succeeded);
+            
+            // Verify the icon was extracted
+            var iconPath = Path.Combine(testFolderPath, "folder.ico");
+            Assert.True(File.Exists(iconPath), "Icon should be extracted");
+            
+            // Read the icon file header to verify it's valid
+            using var fs = File.OpenRead(iconPath);
+            var header = new byte[6];
+            fs.Read(header, 0, 6);
+            
+            Assert.Equal(0, header[0]); // Reserved
+            Assert.Equal(0, header[1]); // Reserved
+            Assert.Equal(1, header[2]); // Type = 1 (ICO)
+            Assert.Equal(0, header[3]); // Type high byte
+            
+            // Icon count should be > 0
+            var iconCount = header[4] | (header[5] << 8);
+            Assert.True(iconCount > 0, "Icon should have at least one image");
+            
+            // Verify backup manifest was created with correct index
+            var backup = BackupManifest.Load(testFolderPath);
+            Assert.NotNull(backup);
+            Assert.Equal(266, backup.OriginalIconIndex);
+        }
+        finally
+        {
+            // Cleanup
+            if (Directory.Exists(testFolderPath))
+            {
+                // Clear attributes and delete
+                foreach (var file in Directory.GetFiles(testFolderPath))
+                {
+                    try
+                    {
+                        File.SetAttributes(file, FileAttributes.Normal);
+                        File.Delete(file);
+                    }
+                    catch { /* Ignore cleanup errors */ }
+                }
+                try { Directory.Delete(testFolderPath); }
+                catch { /* Ignore cleanup errors */ }
+            }
+        }
+    }
 }
 

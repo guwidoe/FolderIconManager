@@ -9,7 +9,7 @@ public class IniFile
 
     public IniFile(string path)
     {
-        _path = Path.GetFullPath(path);
+        _path = System.IO.Path.GetFullPath(path);
     }
 
     public string Path => _path;

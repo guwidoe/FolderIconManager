@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>FolderIconManager.Core</RootNamespace>
     <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

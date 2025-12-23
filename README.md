@@ -2,6 +2,8 @@
 
 A Windows utility to manage and persist custom folder icons. Extracts icons from resource files (DLL, EXE) and installs them locally alongside folders, making custom icons portable and resilient to source file changes.
 
+![Screenshot placeholder - run the GUI to see the interface]
+
 ## The Problem
 
 Windows custom folder icons are configured via `desktop.ini` files that point to icon resources in external files (like `shell32.dll` or application executables). When these source files move, update, or get deleted, folder icons break.
@@ -31,11 +33,29 @@ cd IconExtractor
 dotnet build
 ```
 
-### Publish Self-Contained Executable
+### Publish Self-Contained Executables
 
 ```powershell
+# GUI application (recommended)
+dotnet publish src/FolderIconManager.GUI -c Release -r win-x64 --self-contained
+
+# Command-line interface
 dotnet publish src/FolderIconManager.CLI -c Release -r win-x64 --self-contained
 ```
+
+## GUI Application
+
+The easiest way to use this tool is through the graphical interface:
+
+1. Run `FolderIconManager.GUI.exe`
+2. Click **Browse** to select a folder to scan
+3. Click **Scan** to find all folders with custom icons
+4. Review the list - icons are color-coded by status:
+   - 🟢 **Local** - Already using a local icon file
+   - 🟠 **External** - Using icon from DLL/EXE (can be fixed)
+   - 🔴 **Broken** - Icon source file is missing
+5. Click **Fix All External** to extract and localize all external icons
+6. Watch the log panel for detailed progress
 
 ## Usage
 

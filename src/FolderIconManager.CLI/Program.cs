@@ -74,6 +74,8 @@ class Program
         Console.WriteLine();
 
         var service = new FolderIconService();
+        service.Log.OnLog += entry => Console.WriteLine(entry.ToString());
+        
         var result = service.Scan(fullPath, recursive);
 
         var folders = result.Folders.AsEnumerable();
@@ -178,6 +180,7 @@ class Program
         Console.WriteLine();
 
         var service = new FolderIconService();
+        service.Log.OnLog += entry => Console.WriteLine(entry.ToString());
         
         // First scan
         Console.WriteLine("Scanning...");

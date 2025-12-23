@@ -9,10 +9,22 @@ namespace FolderIconManager.Core.Services;
 /// </summary>
 public class FolderIconService
 {
-    private readonly DesktopIniScanner _scanner = new();
+    private readonly DesktopIniScanner _scanner;
+    private readonly LogService _log;
+
+    public FolderIconService(LogService? logService = null)
+    {
+        _log = logService ?? new LogService();
+        _scanner = new DesktopIniScanner(_log);
+    }
 
     /// <summary>
-    /// Event raised for progress updates
+    /// The log service for this instance
+    /// </summary>
+    public LogService Log => _log;
+
+    /// <summary>
+    /// Event raised for progress updates (legacy - prefer using Log service)
     /// </summary>
     public event Action<string>? OnProgress;
 
@@ -21,8 +33,20 @@ public class FolderIconService
     /// </summary>
     public ScanResult Scan(string rootPath, bool recursive = true, CancellationToken cancellationToken = default)
     {
-        _scanner.OnProgress += msg => OnProgress?.Invoke(msg);
-        return _scanner.Scan(rootPath, recursive, cancellationToken);
+        _log.Info($"Starting scan: {rootPath}");
+        _log.Info($"Recursive: {recursive}");
+        
+        var result = _scanner.Scan(rootPath, recursive, cancellationToken);
+        
+        _log.Success($"Scan complete: {result.FoldersWithIcons} folders with icons found");
+        _log.Info($"  Local: {result.LocalIcons.Count()}, External: {result.ExternalIcons.Count()}, Broken: {result.BrokenIcons.Count()}");
+        
+        if (result.Errors.Count > 0)
+        {
+            _log.Warning($"  {result.Errors.Count} errors during scan");
+        }
+        
+        return result;
     }
 
     /// <summary>
@@ -35,10 +59,16 @@ public class FolderIconService
     {
         var result = new ExtractionResult();
         var stopwatch = Stopwatch.StartNew();
+        var folderList = folders.ToList();
+        
+        _log.Info($"Processing {folderList.Count} folder(s)...");
 
-        foreach (var folder in folders)
+        for (int i = 0; i < folderList.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var folder = folderList[i];
+            
+            _log.Debug($"[{i + 1}/{folderList.Count}] {folder.FolderPath}");
 
             try
             {
@@ -46,6 +76,7 @@ public class FolderIconService
                 if (skipExisting && folder.Status == FolderIconStatus.LocalAndValid)
                 {
                     result.Skipped.Add(folder);
+                    _log.Info($"Skipped (already local): {folder.FolderPath}");
                     OnProgress?.Invoke($"Skipped (already local): {folder.FolderPath}");
                     continue;
                 }
@@ -58,25 +89,36 @@ public class FolderIconService
                         Folder = folder,
                         Message = "Icon source file does not exist"
                     });
+                    _log.Error($"Source missing: {folder.FolderPath}");
+                    _log.Debug($"  Source was: {folder.CurrentIconResource?.FilePath ?? "(null)"}");
                     OnProgress?.Invoke($"Failed (source missing): {folder.FolderPath}");
                     continue;
                 }
 
                 // Extract the icon
                 var localIconPath = folder.SuggestedLocalIconPath;
+                _log.Info($"Extracting: {folder.CurrentIconResource.ExpandedFilePath}");
+                _log.Debug($"  Index: {folder.CurrentIconResource.Index}");
+                _log.Debug($"  Target: {localIconPath}");
+                
                 ExtractIcon(folder.CurrentIconResource, localIconPath);
+                _log.Debug($"  Icon extracted ({new FileInfo(localIconPath).Length:N0} bytes)");
 
                 // Update desktop.ini
+                _log.Debug($"  Updating desktop.ini...");
                 UpdateDesktopIni(folder.FolderPath, localIconPath);
 
                 // Set file attributes
+                _log.Debug($"  Applying attributes...");
                 ApplyAttributes(folder.FolderPath, localIconPath);
 
                 // Notify shell of change
+                _log.Debug($"  Notifying shell...");
                 FileAttributeHelper.NotifyShellOfChange(folder.FolderPath);
 
                 folder.LocalIconPath = localIconPath;
                 result.Succeeded.Add(folder);
+                _log.Success($"Fixed: {folder.FolderPath}");
                 OnProgress?.Invoke($"Success: {folder.FolderPath}");
             }
             catch (Exception ex)
@@ -87,12 +129,17 @@ public class FolderIconService
                     Message = ex.Message,
                     Exception = ex
                 });
+                _log.Error($"Failed: {folder.FolderPath}", ex);
                 OnProgress?.Invoke($"Failed: {folder.FolderPath} - {ex.Message}");
             }
         }
 
         stopwatch.Stop();
         result.Duration = stopwatch.Elapsed;
+        
+        _log.Info($"Processing complete in {result.Duration.TotalSeconds:F2}s");
+        _log.Info($"  Succeeded: {result.Succeeded.Count}, Skipped: {result.Skipped.Count}, Failed: {result.Failed.Count}");
+        
         return result;
     }
 
@@ -116,7 +163,7 @@ public class FolderIconService
 
         if (index >= extractor.IconCount)
         {
-            // If requested index is out of range, use first icon
+            _log.Warning($"Icon index {index} out of range (max {extractor.IconCount - 1}), using index 0");
             index = 0;
         }
 
@@ -174,18 +221,19 @@ public class FolderIconService
         bool skipExisting = true,
         CancellationToken cancellationToken = default)
     {
-        OnProgress?.Invoke($"Scanning {rootPath}...");
+        _log.Info($"=== Starting FixAll operation ===");
+        _log.Info($"Root: {rootPath}");
+        
         var scanResult = Scan(rootPath, recursive, cancellationToken);
-
-        OnProgress?.Invoke($"Found {scanResult.FoldersWithIcons} folders with custom icons");
         
         // Only process folders with external icons
         var toProcess = scanResult.ExternalIcons.ToList();
-        OnProgress?.Invoke($"Processing {toProcess.Count} folders with external icons...");
+        _log.Info($"Found {toProcess.Count} folder(s) with external icons to process");
 
         var extractResult = ExtractAndInstall(toProcess, skipExisting, cancellationToken);
+        
+        _log.Info($"=== FixAll complete ===");
 
         return (scanResult, extractResult);
     }
 }
-

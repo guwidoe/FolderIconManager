@@ -9,6 +9,13 @@ namespace FolderIconManager.Core.Services;
 /// </summary>
 public class DesktopIniScanner
 {
+    private readonly LogService _log;
+
+    public DesktopIniScanner(LogService? logService = null)
+    {
+        _log = logService ?? new LogService();
+    }
+
     /// <summary>
     /// Event raised for progress updates during scanning
     /// </summary>
@@ -24,6 +31,7 @@ public class DesktopIniScanner
 
         if (!Directory.Exists(rootPath))
         {
+            _log.Error($"Root directory does not exist: {rootPath}");
             result.Errors.Add(new ScanError
             {
                 Path = rootPath,
@@ -50,11 +58,13 @@ public class DesktopIniScanner
                     if (folderInfo != null && folderInfo.CurrentIconResource != null)
                     {
                         result.Folders.Add(folderInfo);
+                        _log.Debug($"Found: {folderInfo.FolderPath} ({folderInfo.Status})");
                         OnProgress?.Invoke($"Found: {folderInfo.FolderPath}");
                     }
                 }
                 catch (Exception ex)
                 {
+                    _log.Warning($"Error analyzing {iniPath}: {ex.Message}");
                     result.Errors.Add(new ScanError
                     {
                         Path = iniPath,
@@ -66,10 +76,12 @@ public class DesktopIniScanner
         }
         catch (OperationCanceledException)
         {
+            _log.Warning("Scan cancelled by user");
             throw;
         }
         catch (Exception ex)
         {
+            _log.Error($"Error during scan: {ex.Message}", ex);
             result.Errors.Add(new ScanError
             {
                 Path = rootPath,
@@ -129,11 +141,19 @@ public class DesktopIniScanner
     {
         var stack = new Stack<string>();
         stack.Push(rootPath);
+        var foldersScanned = 0;
 
         while (stack.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var currentDir = stack.Pop();
+            foldersScanned++;
+
+            // Log progress every 100 folders
+            if (foldersScanned % 100 == 0)
+            {
+                _log.Debug($"Scanned {foldersScanned} folders...");
+            }
 
             // Check for desktop.ini in this directory
             var iniPath = Path.Combine(currentDir, "desktop.ini");
@@ -160,6 +180,7 @@ public class DesktopIniScanner
             }
             catch (UnauthorizedAccessException)
             {
+                _log.Debug($"Access denied: {currentDir}");
                 result.Errors.Add(new ScanError
                 {
                     Path = currentDir,
@@ -168,6 +189,7 @@ public class DesktopIniScanner
             }
             catch (Exception ex)
             {
+                _log.Debug($"Error accessing {currentDir}: {ex.Message}");
                 result.Errors.Add(new ScanError
                 {
                     Path = currentDir,
@@ -176,6 +198,8 @@ public class DesktopIniScanner
                 });
             }
         }
+
+        _log.Debug($"Scan complete: {foldersScanned} folders checked");
     }
 
     private static bool ShouldSkipDirectory(string name)
@@ -187,4 +211,3 @@ public class DesktopIniScanner
             || name.Equals("node_modules", StringComparison.OrdinalIgnoreCase);
     }
 }
-
